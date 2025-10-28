@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>薬局納品スケジュールシミュレーター (マルチ)</title>
+    
+    <style>
+        /* CSS変数で色を定義 */
+        :root {
+            --color-picking: #007bff;          /* ピッキング */
+            --color-picking-audit: #5bc0de;    /* ピッキング監査 */
+            --color-ippoka: #28a745;           /* 一包化 */
+            --color-ippoka-audit: #6c757d;     /* 一包化監査 */
+            --color-staple: #ffc107;           /* ホチキス・テープ止め */
+            --color-staple-audit: #fd7e14;     /* ホチキス・テープ止め監査 */
+            --color-calendar: #e83e8c;         /* カレンダーセット */
+            --color-calendar-audit: #6f42c1;   /* カレンダー監査 */
+            --color-default-process: #343a40;  /* その他/未設定 */
+        }
+
+        /* --- 工程ごとの色分けクラス (ガントチャート用) --- */
+        .process-picking { background-color: var(--color-picking); }
+        .process-picking-audit { background-color: var(--color-picking-audit); }
+        .process-ippoka { background-color: var(--color-ippoka); }
+        .process-ippoka-audit { background-color: var(--color-ippoka-audit); }
+        .process-staple { background-color: var(--color-staple); }
+        .process-staple-audit { background-color: var(--color-staple-audit); }
+        .process-calendar { background-color: var(--color-calendar); }
+        .process-calendar-audit { background-color: var(--color-calendar-audit); }
+        .process-default { background-color: var(--color-default-process); }
+
+
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f7f9; }
+        .container { max-width: 1200px; margin: auto; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { color: #333; border-bottom: 3px solid #007bff; padding-bottom: 10px; margin-bottom: 20px; text-align: center; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
+        input[type="date"], input[type="number"], input[type="text"] { padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        
+        .result { margin-top: 30px; padding: 15px; border: 2px solid #28a745; background-color: #e6ffed; border-radius: 5px; text-align: center; }
+        .result h2 { color: #28a745; margin-top: 0; }
+        .result p { font-size: 1.5em; font-weight: bold; }
+
+        /* --- 工程名設定エリア --- */
+        #process-setting-area { border: 2px solid #ffc107; padding: 15px; border-radius: 8px; margin-bottom: 20px; background-color: #fffbe6; }
+        #process-list { list-style: none; padding: 0; }
+        .process-item { display: flex; align-items: center; margin-bottom: 10px; gap: 10px; }
+        .process-item input[type="text"] { flex-grow: 1; border: 1px solid #ffc107; }
+        .process-item button { background-color: #dc3545; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 4px; font-size: 0.9em; }
+        #add-process-btn { background-color: #007bff; color: white; padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px; }
+        #apply-process-btn { background-color: #28a745; color: white; padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; margin-left: 10px; }
+        
+        /* --- 1. 設定保存・印刷ボタンエリア --- */
+        #utility-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 10px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+        }
+        #utility-buttons button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        #save-config-btn { background-color: #17a2b8; color: white; }
+        #load-config-btn { background-color: #ffc107; color: #333; }
+        #print-gantt-btn { background-color: #6c757d; color: white; } 
+
+
+        /* --- 工程・納品先入力エリア --- */
+        .delivery-group-container { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 20px; }
+        .delivery-group { border: 1px solid #007bff; padding: 15px; border-radius: 4pt; flex: 1 1 300px; position: relative; }
+        .delivery-group h2 { font-size: 1.2em; margin-top: 0; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #007bff; padding-bottom: 5px; }
+        .delivery-group .remove-btn { background-color: #dc3545; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 4px; font-size: 0.9em; }
+        
+        /* --- 工程日数入力テーブル --- */
+        .process-days-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .process-days-table th, .process-days-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        .process-days-table th { background-color: #f2f2f2; font-weight: normal; width: 50%; }
+        .process-days-table input[type="number"] { width: 60px; text-align: center; }
+
+        /* --- ボタン --- */
+        .action-buttons { display: flex; gap: 10px; margin-top: 15px; }
+        .action-buttons button { flex: 1; padding: 10px; font-size: 16px; }
+        #add-delivery-btn { background-color: #28a745; }
+        #add-delivery-btn:hover { background-color: #1e7e34; }
+        
+        /* --- 2週間カレンダー（ガントチャート） --- */
+        #gantt-chart-simple { margin-top: 40px; border: 1px solid #ddd; padding: 10px; border-radius: 5px; overflow-x: auto; }
+        .calendar-chart-wrapper { display: flex; flex-direction: column; min-width: 1000px; }
+        
+        /* カレンダーヘッダー（日付と曜日） */
+        .calendar-header, .chart-row-cal { display: flex; flex-shrink: 0; }
+        .delivery-label-col { width: 180px; flex-shrink: 0; font-weight: bold; padding: 5px; border-right: 1px solid #ccc; background-color: #e0f0ff; } 
+        .date-cell, .day-cell, .task-cell { flex: 1 0 auto; width: 40px; text-align: center; border-left: 1px solid #eee; padding: 5px 0; }
+        .calendar-header { border-bottom: 2px solid #ccc; margin-bottom: 5px; }
+        .date-cell { font-size: 0.8em; background-color: #f9f9f9; border-bottom: 1px solid #ccc; }
+        .day-cell { font-size: 0.7em; background-color: #eee; }
+        .day-cell.sat { color: #007bff; }
+        .day-cell.sun { color: #dc3545; }
+
+        /* タスク行 */
+        .chart-row-cal { align-items: center; border-bottom: 1px dashed #eee; }
+        .chart-row-cal:last-child { border-bottom: none; }
+        .task-cell { position: relative; height: 35px; } /* 折り返しのため高さを確保 */
+        
+        /* --- タスクバー（工程）のスタイル修正 --- */
+        .task-bar-cal { 
+            position: absolute; 
+            top: 0; 
+            bottom: 0; 
+            left: 0; 
+            right: 0; 
+            margin: 3px 0; 
+            border-radius: 2px; 
+            opacity: 0.9; 
+            font-size: 0.7em; 
+            color: white; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            
+            /* 【文字の折り返しと表示を改善】 */
+            overflow: visible; 
+            white-space: normal; /* 折り返しを有効化 */
+            word-break: break-all; /* 長い単語でも強制的に改行 */
+            line-height: 1.1; /* 行間を詰める */
+            padding: 0 1px; 
+            text-align: center;
+            /* 背景色を印刷でも強制的に表示するための重要なプロパティ */
+            -webkit-print-color-adjust: exact;
+            color-adjust: exact; 
+        }
+
+        .delivery-mark { background-color: #dc3545; width: 80%; margin: auto; height: 80%; border-radius: 50%; font-size: 0.7em; display: flex; align-items: center; justify-content: center; opacity: 1; }
+        .order-start-mark { background-color: #28a745; color: white; font-weight: bold; position: absolute; top: 0; bottom: 0; left: 0; right: 0; margin: 3px; border-radius: 2px; font-size: 0.7em; display: flex; align-items: center; justify-content: center; }
+        
+        /* 納品先名表示 */
+        .delivery-name-row { background-color: #f0f8ff; font-weight: bold; padding: 5px; border-top: 2px solid #007bff; }
+        .delivery-start-date { font-size: 0.9em; font-weight: normal; color: #555; }
+        
+        /* --- 2. 印刷用スタイル (A4横向きに最適化) --- */
+        @media print {
+            body * { visibility: hidden; } /* 全て非表示に */
+            .container { max-width: none; margin: 0; padding: 0; box-shadow: none; }
+            
+            /* ガントチャートとヘッダー、全体発注開始日のみ表示 */
+            #gantt-chart-print-area, #gantt-chart-print-area * { visibility: visible; }
+            #gantt-chart-print-area {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                margin: 0;
+                padding: 10mm; /* 印刷時の余白 */
+                box-sizing: border-box;
+            }
+            
+            /* A4横向き */
+            @page {
+                size: A4 landscape;
+                margin: 10mm;
+            }
+            
+            /* ヘッダーと結果表示も印刷エリアに含める */
+            .print-header { visibility: visible; margin-bottom: 20px; }
+            .print-header h1 { visibility: visible; text-align: left; border-bottom: 1px solid #333; }
+            .print-header .result { visibility: visible; border: none; background: none; text-align: left; padding: 0; }
+            .print-header .result p { font-size: 1.2em; }
+
+            .calendar-chart-wrapper { min-width: 100%; }
+            .delivery-label-col { width: 150px; } /* 印刷時は少し幅を減らす */
+            .date-cell, .day-cell, .task-cell { width: 35px; } /* 印刷時はセルを狭く */
+
+            /* 印刷時の折り返し設定 */
+            .task-bar-cal {
+                white-space: normal;
+                word-break: break-all;
+                line-height: 1.1;
+                padding: 0 1px;
+            }
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="gantt-chart-print-area">
+            <div class="print-header">
+                <h1>薬局納品スケジュールシミュレーター</h1>
+                {% if global_start_date %}
+                    <div class="result">
+                        <h2>全納品先で最も早い発注開始日:</h2>
+                        <p>{{ global_start_date }}</p>
+                    </div>
+                {% endif %}
+            </div>
+            <div id="gantt-chart-simple"></div>
+        </div>
+
+
+        <h1>薬局納品スケジュールシミュレーター (複数納品先対応)</h1>
+        
+        <div id="utility-buttons">
+            <button type="button" id="save-config-btn">⚙️ 設定を保存</button>
+            <button type="button" id="load-config-btn">📥 設定を読込</button>
+            <button type="button" id="print-gantt-btn">🖨️ スケジュールを印刷</button>
+        </div>
+        
+        <div id="process-setting-area">
+            <h2>工程名の設定</h2>
+            <p>※ここで工程名を設定した後、「工程名を適用」ボタンを押してください。設定された工程名がすべての納品先グループに反映されます。</p>
+            <ul id="process-list">
+                </ul>
+            <button type="button" id="add-process-btn">工程を追加</button>
+            <button type="button" id="apply-process-btn">工程名を適用</button>
+        </div>
+        
+        <form method="POST" id="schedule-form">
+            <div id="hidden-process-names">
+                {# Flaskから渡された工程名をJinjaで挿入 #}
+                {% set effective_process_names = process_names_form %}
+                
+                {% for name in effective_process_names %}
+                    <input type="hidden" name="process_name[]" value="{{ name }}">
+                {% endfor %}
+            </div>
+
+
+            <div class="delivery-group-container" id="delivery-group-container">
+                {# 納品先グループをレンダリング #}
+                {% for d_index in range(delivery_names_form|length) %}
+                <div class="delivery-group" data-delivery-index="{{ d_index }}">
+                    <h2>
+                        納品先 #<span class="delivery-index-label">{{ d_index + 1 }}</span>:
+                        <button type="button" class="remove-btn" onclick="removeDeliveryGroup(this)">削除</button>
+                    </h2>
+                    
+                    <label>納品先名:</label>
+                    <input type="text" name="delivery_name[]" value="{{ delivery_names_form[d_index] }}" required>
+                    
+                    <label>最終納品希望日:</label>
+                    <input type="date" name="delivery_date_{{ d_index }}" required value="{{ request.form['delivery_date_' + d_index|string] or '' }}">
+
+                    <table class="process-days-table">
+                        <thead>
+                            <tr>
+                                <th>工程名</th>
+                                <th>所要営業日数</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for process_name in effective_process_names %}
+                            {% set p_index = loop.index0 %}
+                            <tr>
+                                <td><input type="text" value="{{ process_name }}" readonly style="border:none; background:transparent;" class="process-name-display"></td>
+                                <td>
+                                    {% set days_key = 'process_' + p_index|string + '_days_' + d_index|string %}
+                                    <input type="number" name="{{ days_key }}" min="0" value="{{ process_days_form[days_key] or '1' }}" required> 営業日
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endfor %}
+            </div>
+            
+            <div class="action-buttons">
+                <button type="button" id="add-delivery-btn">納品先を追加</button>
+                <button type="submit">スケジュールを逆算</button>
+            </div>
+        </form>
+
+        {% if global_start_date %}
+            <div class="result">
+                <h2>全納品先で最も早い発注開始日:</h2>
+                <p>{{ global_start_date }}</p>
+            </div>
+        {% endif %}
+    </div>
+
+    <script>
+        // --- Jinjaから固定開始日とスケジュールデータを取得 ---
+        const GANTT_FIXED_START_DATE = "{{ gantt_fixed_start_date }}";
+        const allSchedules = {{ all_schedules | tojson | safe }} || []; 
+
+        // --- 初期設定された新しい工程名リスト (app.pyと一致) ---
+        const DEFAULT_PROCESS_NAMES = [
+            'ピッキング',
+            'ピッキング監査',
+            '一包化',
+            '一包化監査',
+            'ホチキス・テープ止め',
+            'ホチキス・テープ止め監査',
+            'カレンダーセット',
+            'カレンダー監査'
+        ];
+        
+        // Jinjaで挿入された隠しフィールドから工程名を取得
+        let currentProcessNames = [];
+        document.querySelectorAll('#hidden-process-names input[name="process_name[]"]').forEach(input => {
+            const name = input.value.trim();
+            if (name) {
+                currentProcessNames.push(name);
+            }
+        });
+        
+        // 念のため、初期ロード時にcurrentProcessNamesが空の場合はデフォルトを適用
+        if (currentProcessNames.length === 0 || (currentProcessNames.length === 1 && currentProcessNames[0] === '')) {
+             currentProcessNames = DEFAULT_PROCESS_NAMES;
+        }
+
+        const processListElement = document.getElementById('process-list');
+        const deliveryContainer = document.getElementById('delivery-group-container');
+        const hiddenProcessNamesDiv = document.getElementById('hidden-process-names');
+        const scheduleForm = document.getElementById('schedule-form');
+
+        // --- ユーティリティ関数 ---
+        function parseDate(dateStr) {
+            const parts = dateStr.split('-');
+            return new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+        }
+        
+        function formatDate(dateObj) {
+            const y = dateObj.getUTCFullYear();
+            const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+            const d = String(dateObj.getUTCDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+        
+        function getDayName(dayIndex) {
+            const days = ['日', '月', '火', '水', '木', '金', '土'];
+            return days[dayIndex];
+        }
+
+        // --- 🎨 工程名に応じたCSSクラス名を決定する関数 ---
+        function getProcessClass(processName) {
+            const normalizedName = processName.trim();
+            switch (normalizedName) {
+                case 'ピッキング': return 'process-picking';
+                case 'ピッキング監査': return 'process-picking-audit';
+                case '一包化': return 'process-ippoka';
+                case '一包化監査': return 'process-ippoka-audit';
+                case 'ホチキス・テープ止め': return 'process-staple';
+                case 'ホチキス・テープ止め監査': return 'process-staple-audit';
+                case 'カレンダーセット': return 'process-calendar';
+                case 'カレンダー監査': return 'process-calendar-audit';
+                default: return 'process-default'; 
+            }
+        }
+
+
+        // --- 1. 設定保存/読込ロジック ---
+        
+        const LOCAL_STORAGE_KEY = 'pharmacy_schedule_config';
+
+        function saveConfig() {
+            updateProcessNamesFromInputs(); // 現在の工程設定リストを更新
+
+            const config = {
+                processNames: currentProcessNames.filter(name => name !== ""),
+                deliveryGroups: []
+            };
+
+            Array.from(deliveryContainer.children).forEach(group => {
+                const d_index = parseInt(group.getAttribute('data-delivery-index'));
+                const deliveryName = group.querySelector('input[name="delivery_name[]"]').value;
+                const deliveryDate = group.querySelector(`input[name="delivery_date_${d_index}"]`).value;
+                
+                const processDays = {};
+                group.querySelectorAll('.process-days-table tbody tr').forEach(row => {
+                    const nameInput = row.querySelector('.process-name-display');
+                    const daysInput = row.querySelector('input[type="number"]');
+                    if (nameInput && daysInput) {
+                        processDays[nameInput.value] = daysInput.value;
+                    }
+                });
+                
+                config.deliveryGroups.push({
+                    deliveryName,
+                    deliveryDate,
+                    processDays
+                });
+            });
+
+            try {
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(config));
+                alert('✅ 設定をブラウザに保存しました。');
+            } catch (e) {
+                alert('❌ 設定の保存に失敗しました。ブラウザのストレージを確認してください。');
+            }
+        }
+        
+        function loadConfig() {
+            const savedConfig = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (!savedConfig) {
+                alert('🚨 保存された設定が見つかりません。');
+                return;
+            }
+
+            if (!confirm('現在の入力内容を破棄して、保存された設定を読み込みますか？')) {
+                return;
+            }
+
+            try {
+                const config = JSON.parse(savedConfig);
+                
+                // 1. 工程名リストの更新
+                currentProcessNames = config.processNames || DEFAULT_PROCESS_NAMES;
+                renderProcessSettingList(); 
+                applyProcessNamesToDeliveryGroups(null); // 納品先グループの工程名も更新
+
+                // 2. 納品先グループをクリアし、再構築
+                deliveryContainer.innerHTML = '';
+                (config.deliveryGroups || []).forEach((groupData, d_index) => {
+                    const newGroup = addDeliveryGroup(d_index, { 
+                        deliveryName: groupData.deliveryName,
+                        deliveryDate: groupData.deliveryDate
+                    });
+                    
+                    // 日数データの復元
+                    if (newGroup) {
+                        newGroup.querySelectorAll('.process-days-table tbody tr').forEach(row => {
+                            const nameInput = row.querySelector('.process-name-display');
+                            const daysInput = row.querySelector('input[type="number"]');
+                            if (nameInput && daysInput && groupData.processDays[nameInput.value]) {
+                                daysInput.value = groupData.processDays[nameInput.value];
+                            }
+                        });
+                    }
+                });
+                
+                updateDeliveryLabels();
+                alert('👍 設定を読み込みました。スケジュールを逆算し直してください。');
+
+            } catch (e) {
+                alert('❌ 設定の読み込みに失敗しました。データが破損している可能性があります。');
+            }
+        }
+
+        // --- 印刷ロジック ---
+        function printGantt() {
+            window.print();
+        }
+
+        // --- 2. 工程名設定エリアの操作 ---
+
+        function renderProcessSettingList() {
+            processListElement.innerHTML = '';
+            
+            if (currentProcessNames.length === 0) {
+                 processListElement.innerHTML = '<li>現在、工程は設定されていません。</li>';
+                 return;
+            }
+
+            currentProcessNames.forEach((name, index) => {
+                const listItem = document.createElement('li');
+                listItem.className = 'process-item';
+                listItem.innerHTML = `
+                    <input type="text" value="${name}" data-index="${index}" placeholder="工程名を入力" required>
+                    <button type="button" onclick="removeProcessSetting(${index})">削除</button>
+                `;
+                processListElement.appendChild(listItem);
+            });
+        }
+
+        function addProcessSetting() {
+            currentProcessNames.push("");
+            renderProcessSettingList();
+
+            const newInputs = processListElement.querySelectorAll('.process-item input[type="text"]');
+            if (newInputs.length > 0) {
+                newInputs[newInputs.length - 1].focus();
+            }
+        }
+
+        function removeProcessSetting(index) {
+            updateProcessNamesFromInputs(); 
+            if (confirm(`「${currentProcessNames[index] || '新しい工程'}」を削除しますか？`)) {
+                currentProcessNames.splice(index, 1);
+                renderProcessSettingList();
+                // 削除後も即座に反映させる
+                applyProcessNamesToDeliveryGroups(null); 
+            }
+        }
+
+        function updateProcessNamesFromInputs() {
+            const inputs = processListElement.querySelectorAll('.process-item input[type="text"]');
+            currentProcessNames = Array.from(inputs).map(input => input.value.trim());
+        }
+        
+        // --- 3. 工程名を納品先グループに反映させる ---
+        
+        function applyProcessNamesToDeliveryGroups(event) {
+            // イベント発生時（ボタンクリック時）は、入力欄から最新の工程名を取得
+            if (event && event.type === 'click') {
+                updateProcessNamesFromInputs();
+            }
+            
+            const validProcessNames = currentProcessNames.filter(name => name !== "");
+            
+            if (validProcessNames.length === 0) {
+                if (event && event.type === 'click') {
+                    alert("工程名が設定されていません。少なくとも一つ工程を追加・設定してください。");
+                }
+                return;
+            }
+            
+            // 隠しフィールドの更新 (サーバー送信データ)
+            hiddenProcessNamesDiv.innerHTML = validProcessNames.map(name => 
+                `<input type="hidden" name="process_name[]" value="${name}">`
+            ).join('');
+
+            // 各納品先グループの工程日数テーブルを再構築
+            Array.from(deliveryContainer.children).forEach(group => {
+                const d_index = parseInt(group.getAttribute('data-delivery-index'));
+                const tableBody = group.querySelector('.process-days-table tbody');
+                
+                // 既存の日数データを保持 (キー: 旧工程名 => 日数)
+                const existingDays = {};
+                group.querySelectorAll('.process-days-table tbody tr').forEach(row => {
+                    const nameInput = row.querySelector('.process-name-display');
+                    const daysInput = row.querySelector('input[type="number"]');
+                    if (nameInput && daysInput) {
+                        existingDays[nameInput.value] = daysInput.value;
+                    }
+                });
+
+                tableBody.innerHTML = ''; // テーブル内容をクリア
+
+                validProcessNames.forEach((name, p_index) => {
+                    const days_key = `process_${p_index}_days_${d_index}`;
+                    // 新しい工程名に対応する日数を、旧工程名の日数から取得。なければ '1'
+                    const defaultValue = existingDays[name] || '1'; 
+                    
+                    const newRow = document.createElement('tr');
+                    newRow.innerHTML = `
+                        <td><input type="text" value="${name}" readonly style="border:none; background:transparent;" class="process-name-display"></td>
+                        <td>
+                            <input type="number" name="${days_key}" min="0" value="${defaultValue}" required> 営業日
+                        </td>
+                    `;
+                    tableBody.appendChild(newRow);
+                });
+            });
+            
+            currentProcessNames = validProcessNames;
+            renderProcessSettingList();
+            
+            // ユーザー操作による適用時のみアラートを出す
+            if (event && event.type === 'click') {
+                alert(`工程名 (${validProcessNames.length}個) がすべての納品先グループに適用されました。`);
+            }
+        }
+
+
+        // --- 4. 納品先グループの操作 ---
+
+        function addDeliveryGroup(d_index, initialData = {}) {
+            const validProcessNames = currentProcessNames.filter(name => name !== "");
+            
+            if (validProcessNames.length === 0) {
+                 alert("先に「工程名設定エリア」で工程名を設定し、「工程名を適用」ボタンを押してください。");
+                 return null;
+            }
+
+            const newGroup = document.createElement('div');
+            newGroup.className = 'delivery-group';
+            newGroup.setAttribute('data-delivery-index', d_index);
+
+            const defaultDeliveryName = initialData.deliveryName || `納品先${d_index + 1}`;
+            const defaultDeliveryDate = initialData.deliveryDate || '';
+
+            let tableRows = '';
+            
+            validProcessNames.forEach((name, p_index) => {
+                const days_key = `process_${p_index}_days_${d_index}`;
+                // 読込時は初期データの日数、それ以外はデフォルトの'1'
+                const daysValue = (initialData.processDays && initialData.processDays[name]) || '1';
+                
+                tableRows += `
+                    <tr>
+                        <td><input type="text" value="${name}" readonly style="border:none; background:transparent;" class="process-name-display"></td>
+                        <td>
+                            <input type="number" name="${days_key}" min="0" value="${daysValue}" required> 営業日
+                        </td>
+                    </tr>
+                `;
+            });
+
+            newGroup.innerHTML = `
+                <h2>
+                    納品先 #<span class="delivery-index-label">${d_index + 1}</span>:
+                    <button type="button" class="remove-btn" onclick="removeDeliveryGroup(this)">削除</button>
+                </h2>
+                <label>納品先名:</label>
+                <input type="text" name="delivery_name[]" value="${defaultDeliveryName}" required>
+                
+                <label>最終納品希望日:</label>
+                <input type="date" name="delivery_date_${d_index}" required value="${defaultDeliveryDate}">
+
+                <table class="process-days-table">
+                    <thead>
+                        <tr><th>工程名</th><th>所要営業日数</th></tr>
+                    </thead>
+                    <tbody>${tableRows}</tbody>
+                </table>
+            `;
+            deliveryContainer.appendChild(newGroup);
+            updateDeliveryLabels();
+            return newGroup;
+        }
+        
+        function removeDeliveryGroup(button) {
+            button.closest('.delivery-group').remove();
+            updateDeliveryLabels();
+        }
+
+        // 納品先グループのインデックスとname属性を修正する
+        function updateDeliveryLabels() {
+            Array.from(deliveryContainer.children).forEach((group, index) => {
+                group.setAttribute('data-delivery-index', index);
+                
+                // 納品先番号ラベルの更新
+                const labelElement = group.querySelector('.delivery-index-label');
+                if (labelElement) {
+                    labelElement.textContent = index + 1;
+                }
+                
+                // name属性の更新
+                group.querySelectorAll('[name^="delivery_date_"]').forEach(input => {
+                    input.name = `delivery_date_${index}`;
+                });
+                group.querySelectorAll('[name^="process_"]').forEach(input => {
+                    const parts = input.name.split('_');
+                    if (parts.length >= 3) {
+                         // parts[1]は工程インデックス
+                         input.name = `process_${parts[1]}_days_${index}`; 
+                    }
+                });
+            });
+        }
+        
+        // --- 5. 納品先軸カレンダー描画 (色分けに対応) ★★★ 固定開始日を使用 ★★★
+        
+        function drawCalendarGantt() {
+            const globalStartDateStr = "{{ global_start_date }}";
+            const chartContainer = document.getElementById('gantt-chart-simple');
+            
+            // スケジュールデータがないか、チャートコンテナがない場合は処理しない
+            if (allSchedules.length === 0 || !chartContainer) return;
+            
+            // サーバーから渡された固定開始日を使用
+            const fixedStartDateStr = GANTT_FIXED_START_DATE; 
+            const fixedStartDate = parseDate(fixedStartDateStr); 
+            
+            chartContainer.innerHTML = ''; 
+            const wrapper = document.createElement('div');
+            wrapper.className = 'calendar-chart-wrapper';
+            
+            const daysToShow = 14;
+            let currentDay = new Date(fixedStartDate); // 固定開始日からスタート
+
+            currentDay.setUTCHours(0, 0, 0, 0); 
+            
+            const headerDateRow = document.createElement('div');
+            headerDateRow.className = 'calendar-header';
+            headerDateRow.innerHTML = '<div class="delivery-label-col">納品先</div>';
+
+            const headerDayRow = document.createElement('div');
+            headerDayRow.className = 'calendar-header';
+            headerDayRow.innerHTML = '<div class="delivery-label-col delivery-start-date">チャート開始日: ' + fixedStartDateStr + '</div>';
+
+            const dateList = []; 
+
+            // カレンダーヘッダーの生成
+            for (let i = 0; i < daysToShow; i++) {
+                const dayName = getDayName(currentDay.getUTCDay());
+                const dayClass = currentDay.getUTCDay() === 6 ? 'sat' : (currentDay.getUTCDay() === 0 ? 'sun' : '');
+
+                headerDateRow.innerHTML += `<div class="date-cell">${currentDay.getUTCMonth() + 1}/${currentDay.getUTCDate()}</div>`;
+                headerDayRow.innerHTML += `<div class="day-cell ${dayClass}">${dayName}</div>`;
+                
+                dateList.push(formatDate(currentDay));
+                
+                currentDay = new Date(currentDay.getTime() + (24 * 60 * 60 * 1000));
+            }
+            
+            wrapper.appendChild(headerDayRow);
+            wrapper.appendChild(headerDateRow);
+
+            // スケジュール行の描画
+            allSchedules.forEach(delivery => {
+                const dRow = document.createElement('div');
+                dRow.className = 'chart-row-cal';
+                
+                const labelCol = document.createElement('div');
+                labelCol.className = 'delivery-label-col';
+                labelCol.textContent = delivery.delivery_name;
+                dRow.appendChild(labelCol);
+                
+                dateList.forEach(dateStr => {
+                    const cell = document.createElement('div');
+                    cell.className = 'task-cell';
+                    cell.setAttribute('data-date', dateStr);
+                    
+                    const currentDate = parseDate(dateStr);
+
+                    delivery.schedule.forEach(p => {
+                        const taskStart = parseDate(p.start);
+                        // 納品日（終了日）の1日前までが工程期間
+                        const actualEndDate = new Date(parseDate(p.end).getTime() - (24 * 60 * 60 * 1000)); 
+                        
+                        if (currentDate >= taskStart && currentDate <= actualEndDate) {
+                            const bar = document.createElement('div');
+                            bar.className = 'task-bar-cal ' + getProcessClass(p.name);
+                            
+                            // 修正箇所: 文字の省略ロジックを削除し、常に工程名を表示
+                            bar.textContent = p.name;
+                            
+                            cell.appendChild(bar);
+                        }
+                    });
+
+                    const deliveryDate = parseDate(delivery.delivery_date);
+                    if (formatDate(currentDate) === formatDate(deliveryDate)) {
+                        const mark = document.createElement('div');
+                        mark.className = 'delivery-mark';
+                        mark.textContent = '納品';
+                        cell.appendChild(mark);
+                    }
+                    
+                    dRow.appendChild(cell);
+                });
+                wrapper.appendChild(dRow);
+            });
+            
+            // 全体発注開始日のマーカー
+            const orderStartRow = document.createElement('div');
+            orderStartRow.className = 'chart-row-cal';
+            orderStartRow.innerHTML = '<div class="delivery-label-col">全体発注 START</div>';
+            
+            dateList.forEach(dateStr => {
+                const cell = document.createElement('div');
+                cell.className = 'task-cell';
+                if (dateStr === globalStartDateStr) {
+                    const mark = document.createElement('div');
+                    mark.className = 'order-start-mark';
+                    mark.textContent = 'START';
+                    cell.appendChild(mark);
+                }
+                orderStartRow.appendChild(cell);
+            });
+            wrapper.appendChild(orderStartRow);
+
+            chartContainer.appendChild(wrapper);
+        }
+
+        // --- イベントリスナーと初期化 ---
+
+        document.getElementById('add-process-btn').addEventListener('click', addProcessSetting);
+        document.getElementById('apply-process-btn').addEventListener('click', applyProcessNamesToDeliveryGroups);
+        document.getElementById('add-delivery-btn').addEventListener('click', function() {
+            const d_index = deliveryContainer.children.length;
+            addDeliveryGroup(d_index);
+        });
+
+        // 設定保存/印刷イベントの追加
+        document.getElementById('save-config-btn').addEventListener('click', saveConfig);
+        document.getElementById('load-config-btn').addEventListener('click', loadConfig);
+        document.getElementById('print-gantt-btn').addEventListener('click', printGantt);
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // 1. 初期ロード時に工程設定リストをレンダリング (Jinjaからの値を反映)
+            renderProcessSettingList();
+            
+            // 2. 納品先がある場合、工程リストを反映させる（納品先テーブルの工程名と日数を確定させる）
+            if (deliveryContainer.children.length > 0) {
+                 applyProcessNamesToDeliveryGroups(null); 
+            }
+
+            // 3. ガントチャートの描画
+            if (document.getElementById('gantt-chart-simple')) {
+                drawCalendarGantt();
+            }
+            
+            // 4. ラベルの初期更新
+            updateDeliveryLabels(); 
+        });
+    </script>
+</body>
+</html>
