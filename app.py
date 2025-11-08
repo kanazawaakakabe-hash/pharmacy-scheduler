@@ -2,6 +2,7 @@ from flask import Flask, render_template, request
 from datetime import datetime, timedelta, date
 import jpholiday
 import os 
+import math # ★ math モジュールを追加
 
 # --- Flask アプリケーションの初期化 ---
 app = Flask(__name__) 
@@ -21,12 +22,11 @@ def is_business_day(d: date) -> bool:
 
 def calculate_business_days_ago(end_date: date, days_needed: int) -> date:
     """指定された日数（営業日、1日単位）だけ過去に遡った日付を計算する関数。
-    
     end_date は '作業最終日'（この工程の終了日）を指します。
     戻り値は '作業開始日' です。
     """
     if days_needed <= 0:
-        return end_date # 0日以下の場合は、終了日自体が開始日として扱われる
+        return end_date
     
     current_date = end_date
     days_to_count = days_needed
@@ -84,42 +84,42 @@ def index():
             except ValueError:
                 continue
                 
-            # 納品日を最終工程の「作業終了日」（次の工程の開始日）として設定
             current_end_date_obj = delivery_date_obj
-            
-            # 納品希望日が非営業日なら、最も近い過去の営業日を「最終作業完了日」とする
             while not is_business_day(current_end_date_obj):
                 current_end_date_obj -= timedelta(days=1)
+
+            # 最初の工程の開始日を追跡するための変数
+            first_process_start_date = None 
 
             # 工程を逆順で処理
             for p_index, p_name in reversed(list(enumerate(process_names))):
                 days_key = f'process_{p_index}_days_{d_index}'
                 days_str = request.form.get(days_key, '0')
+                
                 try:
-                    days_needed = int(float(days_str)) 
+                    # ★ 修正ポイント: 小数点以下を切り上げて整数化（1.5日 -> 2日）
+                    days_needed = math.ceil(float(days_str)) 
                 except ValueError:
                     days_needed = 0
 
-                # この工程の終了日 (作業完了日) は current_end_date_obj
                 end_date_obj = current_end_date_obj
                 
                 if days_needed > 0:
                     
-                    # 1. 開始日を逆算 (end_date_obj は作業最終日)
                     start_date_obj = calculate_business_days_ago(end_date_obj, days_needed)
                     
-                    # スケジュールリストにタスクを追加 (ガントチャート表示用)
                     schedule.append({
                         'name': p_name,
                         'start': start_date_obj.strftime('%Y-%m-%d'),
                         'end': end_date_obj.strftime('%Y-%m-%d'), 
                     })
+
+                    # 最も最初の工程の開始日を記録（逆順処理のため、最後に記録されたものが最初）
+                    if first_process_start_date is None or p_index == 0:
+                         first_process_start_date = start_date_obj
                     
-                    # 2. 次の工程の完了日を更新
-                    # 次の工程の完了日は、現在の工程の開始日（start_date_obj）の「前営業日」
-                    
+                    # 次の工程の完了日を更新
                     current_end_date_obj = start_date_obj - timedelta(days=1)
-                    # 営業日になるまでさらに過去に遡る
                     while not is_business_day(current_end_date_obj):
                         current_end_date_obj -= timedelta(days=1)
                         
@@ -131,16 +131,8 @@ def index():
             
             schedule.reverse() # 正しい時間軸に戻す
 
-            # delivery_start_date_obj は最初の工程の開始日を特定する。
-            if schedule:
-                # 最初の工程の開始日を全体の開始日とする
-                delivery_start_date_obj = datetime.strptime(schedule[0]['start'], '%Y-%m-%d').date()
-            else:
-                # 所要日数が全て0の場合、納品日の前営業日を全体の開始日とする（暫定）
-                delivery_start_date_obj = delivery_date_obj - timedelta(days=1)
-                while not is_business_day(delivery_start_date_obj):
-                    delivery_start_date_obj -= timedelta(days=1)
-
+            # delivery_start_date_obj は最初の工程の開始日
+            delivery_start_date_obj = first_process_start_date if first_process_start_date else delivery_date_obj
 
             if earliest_start_date_obj is None or delivery_start_date_obj < earliest_start_date_obj:
                 earliest_start_date_obj = delivery_start_date_obj
@@ -154,29 +146,23 @@ def index():
 
         global_start_date = earliest_start_date_obj.strftime('%Y-%m-%d') if earliest_start_date_obj else None
         
-        # ガントチャートの表示開始日を、全体開始日の2営業日前に設定
         if global_start_date and earliest_start_date_obj:
-            # earliest_start_date_obj を終了日として、2営業日前に開始日を計算
             gantt_fixed_start_date = calculate_business_days_ago(
                 earliest_start_date_obj, 2
             ).strftime('%Y-%m-%d')
         else:
-             # スケジュール計算が行われなかった場合は今日の日付をセット
              gantt_fixed_start_date = datetime.now().strftime('%Y-%m-%d')
 
     else:
-        # GETリクエストの場合、今日の2営業日前の日付を初期値としてセット
         today = date.today()
-        # today + timedelta(days=1)を終了日として、2営業日前に開始日を計算
         gantt_fixed_start_date = calculate_business_days_ago(
             today + timedelta(days=1), 2
         ).strftime('%Y-%m-%d')
 
-    # フォームの値を維持するためにJinjaに渡す
-    form_data = {k: v for k, v in request.form.items()}
+    form_data = {k: v for k: v in request.form.items()}
     
     return render_template(
-        'index.html', # テンプレートファイル名
+        'index.html',
         all_schedules=all_schedules,
         global_start_date=global_start_date,
         gantt_fixed_start_date=gantt_fixed_start_date,
@@ -187,5 +173,4 @@ def index():
     )
 
 if __name__ == '__main__':
-    # ローカル実行用の設定
     app.run(debug=True)
