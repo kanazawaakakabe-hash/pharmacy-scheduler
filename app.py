@@ -2,7 +2,7 @@ from flask import Flask, render_template, request
 from datetime import datetime, timedelta, date
 import jpholiday
 import os 
-import math # ★ math モジュールを追加
+import math 
 
 # --- Flask アプリケーションの初期化 ---
 app = Flask(__name__) 
@@ -97,7 +97,7 @@ def index():
                 days_str = request.form.get(days_key, '0')
                 
                 try:
-                    # ★ 修正ポイント: 小数点以下を切り上げて整数化（1.5日 -> 2日）
+                    # 小数点以下を切り上げて整数化
                     days_needed = math.ceil(float(days_str)) 
                 except ValueError:
                     days_needed = 0
@@ -114,7 +114,7 @@ def index():
                         'end': end_date_obj.strftime('%Y-%m-%d'), 
                     })
 
-                    # 最も最初の工程の開始日を記録（逆順処理のため、最後に記録されたものが最初）
+                    # 最も最初の工程の開始日を記録
                     if first_process_start_date is None or p_index == 0:
                          first_process_start_date = start_date_obj
                     
@@ -129,7 +129,7 @@ def index():
                     while not is_business_day(current_end_date_obj):
                         current_end_date_obj -= timedelta(days=1)
             
-            schedule.reverse() # 正しい時間軸に戻す
+            schedule.reverse()
 
             # delivery_start_date_obj は最初の工程の開始日
             delivery_start_date_obj = first_process_start_date if first_process_start_date else delivery_date_obj
@@ -159,7 +159,8 @@ def index():
             today + timedelta(days=1), 2
         ).strftime('%Y-%m-%d')
 
-    form_data = {k: v for k: v in request.form.items()}
+    # ★ 修正済み: k: v を k, v に変更
+    form_data = {k: v for k, v in request.form.items()}
     
     return render_template(
         'index.html',
