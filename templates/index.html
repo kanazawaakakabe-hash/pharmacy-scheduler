@@ -10,7 +10,6 @@
     <script src="https://cdn.jsdelivr.net/npm/dayjs@1.10.7/dayjs.min.js"></script>
     
     <style>
-        /* スタイルは適宜調整してください */
         .process-input-group {
             margin-bottom: 10px;
         }
@@ -36,7 +35,7 @@
             width: 80px; /* 所要日数の入力幅を調整 */
         }
         .process-list-container {
-            max-height: 400px; /* 工程リストの最大高さを設定 */
+            max-height: 400px; 
             overflow-y: auto;
             border: 1px solid #ddd;
             padding: 10px;
@@ -75,8 +74,8 @@
             </div>
             {% endfor %}
             {% if not process_names_form %}
+            {% set default_names = ['ピッキング', 'ピッキング監査', '一包化', '一包化監査', 'ホチキス・テープ止め', 'ホチキス・テープ止め監査', 'カレンダーセット', 'カレンダー監査'] %}
             {% for i in range(8) %}
-                {% set default_names = ['ピッキング', 'ピッキング監査', '一包化', '一包化監査', 'ホチキス・テープ止め', 'ホチキス・テープ止め監査', 'カレンダーセット', 'カレンダー監査'] %}
                 <div class="input-group process-input-group">
                     <input type="text" class="form-control process-name-input" 
                            name="process_name[]" value="{{ default_names[i] }}" required>
@@ -87,7 +86,7 @@
         </div>
         <div class="mt-2">
             <button type="button" class="btn btn-success" id="addProcessBtn">工程を追加</button>
-            </div>
+        </div>
     </div>
 
     <form method="POST" id="mainForm">
@@ -170,8 +169,8 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for p_index in range(8) %}
                         {% set default_names = ['ピッキング', 'ピッキング監査', '一包化', '一包化監査', 'ホチキス・テープ止め', 'ホチキス・テープ止め監査', 'カレンダーセット', 'カレンダー監査'] %}
+                        {% for p_index in range(8) %}
                         <tr>
                             <td>{{ default_names[p_index] }}</td>
                             <td>
@@ -209,9 +208,8 @@
 
         // --- 納品先追加/削除機能 ---
         document.getElementById('addDeliveryBtn').addEventListener('click', function() {
-            // 納品先のテンプレートを作成 (動的な処理のためJinjaコードをJS内で再構築)
             const deliveryContainer = document.getElementById('deliveryContainer');
-            const newDeliveryIndex = deliveryContainer.children.length; // 既存の数から新しいインデックスを決定
+            const newDeliveryIndex = deliveryContainer.children.length; 
             const processNames = Array.from(document.querySelectorAll('.process-name-input')).map(input => input.value);
 
             let newDeliveryHtml = `
@@ -262,7 +260,6 @@
             </div>
             `;
             
-            // HTMLを挿入し、インデックスを更新
             deliveryContainer.insertAdjacentHTML('beforeend', newDeliveryHtml);
             deliveryIndex++;
             updateDeliveryIndexes();
@@ -288,17 +285,14 @@
                 box.setAttribute('data-delivery-index', index);
                 box.querySelector('h4').textContent = `納品先 # ${index + 1} :`;
                 
-                // name属性のインデックスを更新
                 const deliveryDateInput = box.querySelector('input[name^="delivery_date_"]');
                 if (deliveryDateInput) {
                     deliveryDateInput.name = `delivery_date_${index}`;
                 }
                 
-                // 工程日数の name 属性のインデックスを更新
                 const processDaysInputs = box.querySelectorAll('input[name^="process_"]');
                 processDaysInputs.forEach(input => {
                     const parts = input.name.split('_');
-                    // parts[1]は工程インデックス、parts[3]は納品先インデックス
                     input.name = `process_${parts[1]}_days_${index}`;
                 });
             });
@@ -339,60 +333,80 @@
             let maxEndDate = dayjs(chartStartDate);
 
             const datasets = [];
-            let maxDays = 0;
-
+            
             schedules.forEach(delivery => {
                 const deliveryIndex = datasets.length;
                 const baseLabel = delivery.delivery_name || `納品先 ${deliveryIndex + 1}`;
+                
+                // タスクバーのデータセットを構築するための準備
+                const taskBarData = [];
                 
                 // タスクデータの準備
                 delivery.schedule.forEach(task => {
                     const start = dayjs(task.start);
                     const end = dayjs(task.end);
-                    const durationDays = end.diff(start, 'day') + 1; // 期間日数
                     
-                    datasets.push({
-                        label: `${baseLabel}: ${task.name}`,
-                        data: [{ 
-                            x: start.valueOf(), 
-                            y: deliveryIndex, 
-                            x2: end.add(1, 'day').valueOf() // 期間の終わりを次の日の始まりに設定
-                        }],
-                        backgroundColor: getTaskColor(task.name),
-                        borderColor: getTaskColor(task.name),
-                        borderWidth: 1,
-                        borderRadius: 4,
-                        borderSkipped: false,
-                        stack: deliveryIndex, // 同じ納品先は同じスタック
+                    taskBarData.push({ 
+                        x: start.valueOf(), 
+                        y: deliveryIndex, 
+                        x2: end.add(1, 'day').valueOf(), 
+                        label: task.name, 
+                        backgroundColor: getTaskColor(task.name)
                     });
 
                     if (end.isAfter(maxEndDate)) {
                         maxEndDate = end;
                     }
                 });
-
-                // 納品日マーカー
+                
+                // --- ★ 修正ポイント: タスクバーを個別のデータセットとして追加 ---
+                taskBarData.forEach(taskData => {
+                    datasets.push({
+                        label: `${baseLabel}: ${taskData.label}`, 
+                        data: [{
+                            x: taskData.x,
+                            y: taskData.y,
+                            x2: taskData.x2,
+                        }],
+                        backgroundColor: taskData.backgroundColor,
+                        borderColor: taskData.backgroundColor,
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        borderSkipped: false,
+                        stack: taskData.y, // 同じ納品先は同じスタック
+                        categoryPercentage: 0.8, // タスクバーの太さ
+                        barPercentage: 0.8,
+                    });
+                });
+                
+                // --- 納品日マーカー ---
                 const deliveryDate = dayjs(delivery.delivery_date);
                 datasets.push({
                     label: `${baseLabel}: 納品`,
-                    data: [{ x: deliveryDate.valueOf(), y: deliveryIndex, x2: deliveryDate.add(1, 'day').valueOf() }],
-                    backgroundColor: 'red',
-                    borderColor: 'red',
-                    type: 'bar', // バータイプを使用してマーカーとして表現
-                    barPercentage: 0.1,
+                    data: [{ 
+                        x: deliveryDate.valueOf(), 
+                        y: deliveryIndex, 
+                        x2: deliveryDate.add(1, 'day').valueOf(),
+                        backgroundColor: 'red'
+                    }],
+                    type: 'bar',
+                    barPercentage: 0.1, // マーカーを細く
                     categoryPercentage: 0.1,
                     stack: deliveryIndex,
                 });
 
-                // 全体発注STARTマーカー
+                // --- 全体発注STARTマーカー ---
                 const startDate = dayjs(delivery.start_date);
                  datasets.push({
                     label: `${baseLabel}: START`,
-                    data: [{ x: startDate.valueOf(), y: deliveryIndex, x2: startDate.add(1, 'day').valueOf() }],
-                    backgroundColor: 'green',
-                    borderColor: 'green',
+                    data: [{ 
+                        x: startDate.valueOf(), 
+                        y: deliveryIndex, 
+                        x2: startDate.add(1, 'day').valueOf(),
+                        backgroundColor: 'green'
+                    }],
                     type: 'bar',
-                    barPercentage: 0.1,
+                    barPercentage: 0.1, // マーカーを細く
                     categoryPercentage: 0.1,
                     stack: deliveryIndex,
                 });
@@ -405,13 +419,13 @@
             new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: deliveryLabels, // Y軸ラベルとして使用
+                    labels: deliveryLabels,
                     datasets: datasets
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    indexAxis: 'y', // X軸とY軸を反転
+                    indexAxis: 'y', 
                     scales: {
                         x: {
                             type: 'time',
@@ -423,7 +437,7 @@
                                 }
                             },
                             min: chartStartDate.valueOf(),
-                            max: maxEndDate.add(7, 'day').valueOf(), // 終了日から7日後まで表示
+                            max: maxEndDate.add(7, 'day').valueOf(), 
                             title: {
                                 display: true,
                                 text: '日付'
@@ -447,7 +461,7 @@
                     },
                     plugins: {
                         legend: {
-                            display: false // 凡例は非表示
+                            display: false
                         },
                         tooltip: {
                             callbacks: {
@@ -466,7 +480,6 @@
 
         // --- タスクカラー設定 ---
         function getTaskColor(taskName) {
-            // タスク名に基づいて色を決定する簡単なハッシュ関数
             let hash = 0;
             for (let i = 0; i < taskName.length; i++) {
                 hash = taskName.charCodeAt(i) + ((hash << 5) - hash);
@@ -479,7 +492,6 @@
             return color;
         }
 
-        // 計算結果がある場合にガントチャートをレンダリング
         if (document.getElementById('ganttChart')) {
             renderGanttChart();
         }
