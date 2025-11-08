@@ -1,12 +1,13 @@
 from flask import Flask, render_template, request
 from datetime import datetime, timedelta, date
 import jpholiday
-import os # ★ テンプレートパス指定のためにOSモジュールを追加
+import os 
 
 # --- Flask アプリケーションの初期化 ---
-# template_folderにアプリケーションのルートディレクトリ（app.pyがある場所）を明示的に指定
-# これにより、Render環境下でFlaskがindex.htmlを確実に見つけられるようになります。
-app = Flask(__name__, template_folder=os.path.dirname(os.path.abspath(__file__))) 
+# ★ 修正ポイント: template_folder の絶対パス指定を削除し、標準に戻します。
+# index.html は既に 'templates/' フォルダに移動されているため、標準設定で正しく動作します。
+app = Flask(__name__) 
+
 
 # --- 営業日・休日判定ロジック ---
 
