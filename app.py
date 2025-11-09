@@ -1,150 +1,175 @@
-# app.py の全体コード
 from flask import Flask, render_template, request
-from datetime import datetime, timedelta, date
-import jpholiday
-import os 
-import math 
+from datetime import datetime, timedelta
 
-# --- Flask アプリケーションの初期化 ---
-app = Flask(__name__) 
+app = Flask(__name__)
 
-# --- 営業日・休日判定ロジック ---
-def is_business_day(d: date) -> bool:
-    if d.weekday() >= 5:
-        return False
-    if jpholiday.is_holiday(d):
-        return False
-    return True
+# ★★★ デフォルト工程名の定義 ★★★
+DEFAULT_PROCESS_NAMES = [
+    'ピッキング',
+    'ピッキング監査',
+    '一包化',
+    '一包化監査',
+    'ホチキス・テープ止め',
+    'ホチキス・テープ止め監査',
+    'カレンダーセット',
+    'カレンダー監査'
+]
 
-def calculate_business_days_ago(end_date: date, days_needed: int) -> date:
-    if days_needed <= 0:
-        return end_date
-    current_date = end_date
-    days_to_count = days_needed
-    while not is_business_day(current_date):
+# デフォルトで表示する納品先グループの初期値
+DEFAULT_DELIVERY_NAMES = ["納品先1"]
+
+# 休日をチェックするシンプルな関数 (土日のみ)
+def is_holiday(date):
+    # 月曜日=0, 日曜日=6
+    return date.weekday() >= 5 
+
+# 営業日数から日付を逆算する関数
+def calculate_previous_business_day(start_date, business_days):
+    current_date = start_date
+    # 整数のみを受け取るようUIで制限しているため、ここでは単純に処理
+    days_to_subtract = int(business_days) 
+    
+    while days_to_subtract > 0:
         current_date -= timedelta(days=1)
-    days_to_count -= 1 
-    while days_to_count > 0:
-        current_date -= timedelta(days=1) 
-        if is_business_day(current_date):
-            days_to_count -= 1 
+        # 営業日であればカウントを減らす
+        if not is_holiday(current_date):
+            days_to_subtract -= 1
+            
+    # 計算された開始日が休日だった場合、直前の営業日に戻す
+    while is_holiday(current_date):
+        current_date -= timedelta(days=1)
+        
     return current_date
 
-# --- Flask ルーティング ---
+# ガントチャート開始日を「入力日の翌週月曜日」に固定する関数
+def calculate_gantt_start_date(today_date):
+    # Pythonの weekday() は月曜日=0, 日曜日=6です。
+    days_to_add = (7 - today_date.weekday())
+    
+    return today_date + timedelta(days=days_to_add)
+
+# ★★★ to_js_date 関数は削除されました ★★★
+
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    all_schedules = []
     global_start_date = None
-    gantt_fixed_start_date = None
+    all_schedules = []
     
-    DEFAULT_PROCESS_NAMES = [
-        'ピッキング', 'ピッキング監査', '一包化', '一包化監査',
-        'ホチキス・テープ止め', 'ホチキス・テープ止め監査', 
-        'カレンダーセット', 'カレンダー監査'
-    ]
+    # フォームデータを保持するためのディクショナリ
+    delivery_names_form = DEFAULT_DELIVERY_NAMES
+    process_days_form = {} # { 'process_0_days_0': '1', ... }
+    process_names_form = DEFAULT_PROCESS_NAMES
     
-    process_names = request.form.getlist('process_name[]') or DEFAULT_PROCESS_NAMES
-    delivery_names_form = request.form.getlist('delivery_name[]')
-    
+    # 3. ガントチャート固定開始日を計算
+    today = datetime.now().date()
+    gantt_fixed_start_date = calculate_gantt_start_date(today).strftime('%Y-%m-%d')
+
+
     if request.method == 'POST':
-        num_deliveries = len(delivery_names_form)
-        earliest_start_date_obj = None
-        
-        for d_index in range(num_deliveries):
-            delivery_date_str = request.form.get(f'delivery_date_{d_index}')
-            delivery_name = delivery_names_form[d_index]
+        try:
+            # フォームデータの取得
+            delivery_names_form = request.form.getlist('delivery_name[]')
+            process_names_form = request.form.getlist('process_name[]')
             
-            if not delivery_date_str:
-                continue
-                
-            schedule = []
+            if not process_names_form or process_names_form == ['']:
+                 process_names_form = DEFAULT_PROCESS_NAMES
             
-            try:
-                delivery_date_obj = datetime.strptime(delivery_date_str, '%Y-%m-%d').date()
-            except ValueError:
-                continue
-                
-            current_end_date_obj = delivery_date_obj
-            while not is_business_day(current_end_date_obj):
-                current_end_date_obj -= timedelta(days=1)
+            # 全納品先で最も早い発注開始日を追跡
+            earliest_start_date = datetime(2100, 1, 1).date() 
 
-            first_process_start_date = None 
-
-            for p_index, p_name in reversed(list(enumerate(process_names))):
-                days_key = f'process_{p_index}_days_{d_index}'
-                days_str = request.form.get(days_key, '0')
+            for d_index, delivery_name in enumerate(delivery_names_form):
+                delivery_date_str = request.form.get(f'delivery_date_{d_index}')
                 
-                try:
-                    days_needed = math.ceil(float(days_str)) 
-                except ValueError:
-                    days_needed = 0
+                if not delivery_date_str:
+                    continue 
 
-                end_date_obj = current_end_date_obj
+                delivery_date = datetime.strptime(delivery_date_str, '%Y-%m-%d').date()
                 
-                if days_needed > 0:
+                current_end_date = delivery_date
+                delivery_schedule = []
+                
+                # 納品希望日が休日であれば、直前の営業日に修正
+                while is_holiday(current_end_date):
+                    current_end_date -= timedelta(days=1)
+                
+                # スケジュールの逆算
+                for p_index, process_name in reversed(list(enumerate(process_names_form))):
+                    days_key = f'process_{p_index}_days_{d_index}'
+                    days_str = request.form.get(days_key)
                     
-                    start_date_obj = calculate_business_days_ago(end_date_obj, days_needed)
+                    # フォームデータ保持用のディクショナリに保存
+                    process_days_form[days_key] = days_str or '1'
                     
-                    schedule.append({
-                        'name': p_name,
-                        'start': start_date_obj.strftime('%Y-%m-%d'),
-                        'end': end_date_obj.strftime('%Y-%m-%d'), 
+                    if not days_str:
+                        continue
+                    
+                    try:
+                        process_days = float(days_str) # floatで受け取るが、UIで整数に制限済み
+                    except ValueError:
+                        continue
+                    
+                    if process_days <= 0:
+                         continue
+                          
+                    # 工程の開始日を逆算
+                    days_to_calculate = int(process_days) 
+                    
+                    process_start_date = calculate_previous_business_day(current_end_date, days_to_calculate)
+
+                    # スケジュールに追加 (YYYY-MM-DD 形式の文字列のみ)
+                    delivery_schedule.append({
+                        'name': process_name,
+                        'start': process_start_date.strftime('%Y-%m-%d'),
+                        'end': current_end_date.strftime('%Y-%m-%d'), 
+                        'days': process_days,
                     })
-
-                    if first_process_start_date is None or p_index == 0:
-                         first_process_start_date = start_date_obj
                     
-                    current_end_date_obj = start_date_obj - timedelta(days=1)
-                    while not is_business_day(current_end_date_obj):
-                        current_end_date_obj -= timedelta(days=1)
-                        
-                elif days_needed == 0:
-                    current_end_date_obj -= timedelta(days=1)
-                    while not is_business_day(current_end_date_obj):
-                        current_end_date_obj -= timedelta(days=1)
-            
-            schedule.reverse()
+                    # 次の工程の終了日を更新
+                    current_end_date = process_start_date
 
-            delivery_start_date_obj = first_process_start_date if first_process_start_date else delivery_date_obj
-
-            if earliest_start_date_obj is None or delivery_start_date_obj < earliest_start_date_obj:
-                earliest_start_date_obj = delivery_start_date_obj
+                # スケジュールを逆順に並べ替え（ピッキング -> 納品）
+                delivery_schedule.reverse()
                 
-            all_schedules.append({
-                'delivery_name': delivery_name,
-                'delivery_date': delivery_date_str,
-                'schedule': schedule,
-                'start_date': delivery_start_date_obj.strftime('%Y-%m-%d')
-            })
+                # 全体発注開始日の更新
+                if current_end_date < earliest_start_date:
+                    earliest_start_date = current_end_date
+                
+                all_schedules.append({
+                    'delivery_name': delivery_name,
+                    'delivery_date': delivery_date_str,
+                    'start_date': current_end_date.strftime('%Y-%m-%d'),
+                    'schedule': delivery_schedule
+                })
 
-        global_start_date = earliest_start_date_obj.strftime('%Y-%m-%d') if earliest_start_date_obj else None
-        
-        if global_start_date and earliest_start_date_obj:
-            gantt_fixed_start_date = calculate_business_days_ago(
-                earliest_start_date_obj, 2
-            ).strftime('%Y-%m-%d')
-        else:
-             gantt_fixed_start_date = datetime.now().strftime('%Y-%m-%d')
-
+            if earliest_start_date.year != 2100:
+                global_start_date = earliest_start_date.strftime('%Y-%m-%d')
+                
+        except Exception as e:
+            # エラー処理
+            print(f"計算エラー: {e}")
+            global_start_date = "計算エラーが発生しました。"
+            
+    # GETリクエストの場合 (初回ロード)
     else:
-        today = date.today()
-        gantt_fixed_start_date = calculate_business_days_ago(
-            today + timedelta(days=1), 2
-        ).strftime('%Y-%m-%d')
+        # フォームのデフォルト値をセット
+        process_names_form = DEFAULT_PROCESS_NAMES
+        delivery_names_form = DEFAULT_DELIVERY_NAMES
+        
+        # デフォルトの納品先1に対して、デフォルトの日数をセット
+        for p_index, _ in enumerate(DEFAULT_PROCESS_NAMES):
+            process_days_form[f'process_{p_index}_days_0'] = '1'
 
-    # ★ 修正済み: k: v を k, v に変更 (SyntaxError解消)
-    form_data = {k: v for k, v in request.form.items()}
-    
     return render_template(
         'index.html',
-        all_schedules=all_schedules,
         global_start_date=global_start_date,
-        gantt_fixed_start_date=gantt_fixed_start_date,
+        all_schedules=all_schedules,
         delivery_names_form=delivery_names_form,
-        process_names_form=process_names,
-        request=request, 
-        process_days_form=form_data
+        process_days_form=process_days_form,
+        process_names_form=process_names_form,
+        gantt_fixed_start_date=gantt_fixed_start_date,
+        request=request
     )
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5001)
