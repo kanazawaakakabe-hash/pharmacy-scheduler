@@ -64,7 +64,7 @@
     
     <div class="card p-3 mb-4">
         <h4 class="mb-3">工程名の設定</h4>
-        <p class="text-muted">ここで工程名を設定した後、「工程名を適用」ボタンを押してください。設定された工程名がすべての納品先グループに反映されます。</p>
+        <p class="text-muted">ここで工程名を設定した後、「スケジュールを逆算」ボタンを押してください。設定された工程名がすべての納品先グループに反映されます。</p>
         <div id="processNameContainer">
             {% for name in process_names_form %}
             <div class="input-group process-input-group">
@@ -326,6 +326,12 @@
             const ctx = document.getElementById('ganttChart');
             if (!ctx) return;
 
+            // Chart.js v3のインスタンスが既に存在する場合は破棄
+            if (Chart.getChart(ctx)) {
+                Chart.getChart(ctx).destroy();
+            }
+
+            // Flaskからデータを取得
             const schedules = JSON.parse('{{ all_schedules | tojson | safe }}');
             if (schedules.length === 0) return;
 
@@ -338,45 +344,31 @@
                 const deliveryIndex = datasets.length;
                 const baseLabel = delivery.delivery_name || `納品先 ${deliveryIndex + 1}`;
                 
-                // タスクバーのデータセットを構築するための準備
-                const taskBarData = [];
-                
-                // タスクデータの準備
+                // タスクデータの準備とデータセットへの追加 (★修正済み★)
                 delivery.schedule.forEach(task => {
                     const start = dayjs(task.start);
                     const end = dayjs(task.end);
                     
-                    taskBarData.push({ 
-                        x: start.valueOf(), 
-                        y: deliveryIndex, 
-                        x2: end.add(1, 'day').valueOf(), 
-                        label: task.name, 
-                        backgroundColor: getTaskColor(task.name)
+                    // 各タスクを個別のデータセットとして追加し、x軸の値を [開始日, 終了日] の配列にする
+                    datasets.push({
+                        label: `${baseLabel}: ${task.name}`, 
+                        data: [{
+                            x: [start.valueOf(), end.add(1, 'day').valueOf()],
+                            y: deliveryIndex,
+                        }],
+                        backgroundColor: getTaskColor(task.name),
+                        borderColor: getTaskColor(task.name),
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        categoryPercentage: 0.8, 
+                        barPercentage: 0.8,
+                        stack: deliveryIndex, // 同じ納品先は同じスタック
+                        type: 'bar' // バーチャートとして描画
                     });
 
                     if (end.isAfter(maxEndDate)) {
                         maxEndDate = end;
                     }
-                });
-                
-                // --- ★ 修正ポイント: タスクバーを個別のデータセットとして追加 ---
-                taskBarData.forEach(taskData => {
-                    datasets.push({
-                        label: `${baseLabel}: ${taskData.label}`, 
-                        data: [{
-                            x: taskData.x,
-                            y: taskData.y,
-                            x2: taskData.x2,
-                        }],
-                        backgroundColor: taskData.backgroundColor,
-                        borderColor: taskData.backgroundColor,
-                        borderWidth: 1,
-                        borderRadius: 4,
-                        borderSkipped: false,
-                        stack: taskData.y, // 同じ納品先は同じスタック
-                        categoryPercentage: 0.8, // タスクバーの太さ
-                        barPercentage: 0.8,
-                    });
                 });
                 
                 // --- 納品日マーカー ---
@@ -386,28 +378,30 @@
                     data: [{ 
                         x: deliveryDate.valueOf(), 
                         y: deliveryIndex, 
-                        x2: deliveryDate.add(1, 'day').valueOf(),
-                        backgroundColor: 'red'
                     }],
-                    type: 'bar',
-                    barPercentage: 0.1, // マーカーを細く
-                    categoryPercentage: 0.1,
+                    backgroundColor: 'red',
+                    borderColor: 'red',
+                    borderWidth: 1,
+                    pointRadius: 6, // マーカーとして表示
+                    pointStyle: 'rectRot',
+                    type: 'scatter', // 散布図タイプで日付マーカーとして使用
                     stack: deliveryIndex,
                 });
 
                 // --- 全体発注STARTマーカー ---
                 const startDate = dayjs(delivery.start_date);
-                 datasets.push({
+                datasets.push({
                     label: `${baseLabel}: START`,
                     data: [{ 
                         x: startDate.valueOf(), 
                         y: deliveryIndex, 
-                        x2: startDate.add(1, 'day').valueOf(),
-                        backgroundColor: 'green'
                     }],
-                    type: 'bar',
-                    barPercentage: 0.1, // マーカーを細く
-                    categoryPercentage: 0.1,
+                    backgroundColor: 'green',
+                    borderColor: 'green',
+                    borderWidth: 1,
+                    pointRadius: 6,
+                    pointStyle: 'rectRot',
+                    type: 'scatter', // 散布図タイプで日付マーカーとして使用
                     stack: deliveryIndex,
                 });
             });
@@ -417,7 +411,7 @@
 
             // Chart.jsの設定
             new Chart(ctx, {
-                type: 'bar',
+                type: 'bar', // デフォルトはBar Chartとして定義
                 data: {
                     labels: deliveryLabels,
                     datasets: datasets
@@ -425,7 +419,7 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    indexAxis: 'y', 
+                    indexAxis: 'y', // 横向きのバーチャートに設定
                     scales: {
                         x: {
                             type: 'time',
@@ -467,9 +461,16 @@
                             callbacks: {
                                 label: function(context) {
                                     const label = context.dataset.label || '';
-                                    const start = dayjs(context.parsed._custom.barStart).format('YYYY/MM/DD');
-                                    const end = dayjs(context.parsed._custom.barEnd).subtract(1, 'day').format('YYYY/MM/DD');
-                                    return `${label}: ${start} - ${end}`;
+                                    if (context.dataset.type === 'bar') {
+                                        // Bar Chart (タスクバー) のツールチップ
+                                        const start = dayjs(context.parsed.x).format('YYYY/MM/DD');
+                                        const end = dayjs(context.parsed.x2).subtract(1, 'day').format('YYYY/MM/DD');
+                                        return `${label}: ${start} - ${end}`;
+                                    } else {
+                                        // Scatter Chart (マーカー) のツールチップ
+                                        const date = dayjs(context.parsed.x).format('YYYY/MM/DD');
+                                        return `${label}: ${date}`;
+                                    }
                                 }
                             }
                         }
