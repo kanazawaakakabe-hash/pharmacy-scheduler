@@ -335,7 +335,7 @@
             return color;
         }
 
-        // --- ガントチャート描画 (スタックバー方式 - 最終修正版) ---
+        // --- ガントチャート描画 (初期のシンプルな Bar Chart 試作版) ---
         function renderGanttChart() {
             const ctx = document.getElementById('ganttChart');
             if (!ctx) return;
@@ -347,119 +347,65 @@
             const schedules = JSON.parse('{{ all_schedules | tojson | safe }}');
             if (schedules.length === 0) return;
 
-            // Chart.jsのタイムアダプターは、日数の計算に依存するため、チャート開始日を固定
-            const chartStartDate = dayjs('{{ gantt_fixed_start_date | default("2025-11-01") }}');
-            let maxEndDate = dayjs(chartStartDate);
-
             const datasets = [];
             const deliveryLabels = [];
-            
-            schedules.forEach((delivery, deliveryIndex) => {
-                deliveryLabels.push(delivery.delivery_name || `納品先 ${deliveryIndex + 1}`);
-            });
-            
-            // Y軸ラベルの数（納品先の数）を取得
-            const labelCount = deliveryLabels.length;
-            
-            schedules.forEach((delivery, deliveryIndex) => {
-                
-                // タスクバー描画用の累積日数を初期化
-                let cumulativeDuration = 0;
+            let maxEndDate = dayjs('{{ gantt_fixed_start_date | default("2025-01-01") }}');
 
-                // 1. 各工程のデータセットを準備
-                delivery.schedule.forEach((task, p_index) => {
+            schedules.forEach((delivery, deliveryIndex) => {
+                const deliveryName = delivery.delivery_name || `納品先 ${deliveryIndex + 1}`;
+                deliveryLabels.push(deliveryName);
+
+                // 各工程のデータセットを準備
+                delivery.schedule.forEach(task => {
                     const start = dayjs(task.start);
                     const end = dayjs(task.end);
                     
-                    // maxEndDateの更新
                     if (end.isAfter(maxEndDate)) {
                         maxEndDate = end;
                     }
 
-                    // 基準日 (累積期間の終わり) からタスク開始日までの日数（透明なバー）を計算
-                    const currentCumulativeEnd = chartStartDate.add(cumulativeDuration, 'day');
-                    const startDuration = start.diff(currentCumulativeEnd, 'day', true);
-                    const taskDuration = end.add(1, 'day').diff(start, 'day', true);
-                    
-                    // 2. 透明なバーのデータセット (開始位置調整用)
-                    if (startDuration > 0) {
-                         // ★ 修正ポイント: labelCount分の0埋め配列を作成し、現在の deliveryIndex に値をセット ★
-                         const baseDataArray = new Array(labelCount).fill(0);
-                         baseDataArray[deliveryIndex] = startDuration;
-
-                         datasets.push({
-                            label: `${delivery.delivery_name}: ベース (${startDuration}日)`,
-                            data: baseDataArray, // Y軸の長さに合わせた配列を使用
-                            backgroundColor: 'rgba(0, 0, 0, 0)', // 透明
-                            borderColor: 'rgba(0, 0, 0, 0)', // 透明
-                            categoryPercentage: 0.8,
-                            barPercentage: 0.8,
-                            stack: deliveryIndex, // スタックを適用
-                            borderWidth: 0,
-                            hidden: true
-                        });
-                        cumulativeDuration += startDuration;
-                    }
-
-                    // 3. 実際のタスクバーのデータセット
-                    // ★ 修正ポイント: labelCount分の0埋め配列を作成し、現在の deliveryIndex に値をセット ★
-                    const taskDataArray = new Array(labelCount).fill(0);
-                    taskDataArray[deliveryIndex] = taskDuration;
-
+                    // 初期に試みた、期間を示すデータ形式
                     datasets.push({
-                        label: `${delivery.delivery_name}: ${task.name}`, 
-                        data: taskDataArray, // Y軸の長さに合わせた配列を使用
+                        label: `${deliveryName}: ${task.name}`, 
+                        data: [{ 
+                            x: [start.valueOf(), end.valueOf()], 
+                            y: deliveryIndex 
+                        }],
                         backgroundColor: getTaskColor(task.name),
                         borderColor: getTaskColor(task.name),
                         borderWidth: 1,
                         borderRadius: 4,
-                        categoryPercentage: 0.8, 
+                        categoryPercentage: 0.8,
                         barPercentage: 0.8,
-                        stack: deliveryIndex, // 同じ納品先は同じスタック
+                        // type: 'bar' や stack 設定は Chart.js 標準機能で期間描画を意図的に試す
                     });
-                    
-                    cumulativeDuration += taskDuration;
                 });
-                
-                // 4. 納品日マーカー (Scatter Chartに変更)
+
+                // マーカー
                 const deliveryDate = dayjs(delivery.delivery_date);
+                const startDate = dayjs(delivery.start_date);
+                
                 datasets.push({
-                    label: `${delivery.delivery_name}: 納品`,
-                    data: [{ 
-                        x: deliveryDate.valueOf(), 
-                        y: deliveryIndex, 
-                    }],
+                    label: `${deliveryName}: 納品`,
+                    data: [{ x: deliveryDate.valueOf(), y: deliveryIndex }],
                     backgroundColor: 'red',
-                    borderColor: 'red',
-                    borderWidth: 1,
                     pointRadius: 6,
                     pointStyle: 'rectRot',
                     type: 'scatter', 
-                    stack: deliveryIndex,
                 });
-
-                // 5. 全体発注STARTマーカー (Scatter Chartに変更)
-                const startDate = dayjs(delivery.start_date);
                 datasets.push({
-                    label: `${delivery.delivery_name}: START`,
-                    data: [{ 
-                        x: startDate.valueOf(), 
-                        y: deliveryIndex, 
-                    }],
+                    label: `${deliveryName}: START`,
+                    data: [{ x: startDate.valueOf(), y: deliveryIndex }],
                     backgroundColor: 'green',
-                    borderColor: 'green',
-                    borderWidth: 1,
                     pointRadius: 6,
                     pointStyle: 'rectRot',
                     type: 'scatter',
-                    stack: deliveryIndex,
                 });
-
             });
 
             // Chart.jsの設定
             new Chart(ctx, {
-                type: 'bar', // デフォルトはBar Chartとして定義
+                type: 'bar', // バーチャートで期間表示を試みる
                 data: {
                     labels: deliveryLabels,
                     datasets: datasets
@@ -467,7 +413,7 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    indexAxis: 'y', // 横向きのバーチャートに設定
+                    indexAxis: 'y', // 横向きのバーチャート
                     scales: {
                         x: {
                             type: 'time',
@@ -478,9 +424,10 @@
                                     day: 'M/D(ddd)'
                                 }
                             },
-                            min: chartStartDate.valueOf(),
+                            // ガントチャートの開始日を固定
+                            min: dayjs('{{ gantt_fixed_start_date | default("2025-01-01") }}').valueOf(),
                             max: maxEndDate.add(7, 'day').valueOf(), 
-                            stacked: true, // スタックバーを有効にする
+                            stacked: false, // スタックなし
                             title: {
                                 display: true,
                                 text: '日付'
@@ -500,37 +447,14 @@
                             display: false 
                         },
                         tooltip: {
-                            callbacks: {
+                             callbacks: {
+                                // ツールチップのカスタムロジックは初期状態では省略
                                 label: function(context) {
-                                    const deliveryIndex = context.dataIndex;
-                                    const deliveryName = deliveryLabels[deliveryIndex];
-                                    const fullLabel = context.dataset.label;
-                                    const taskName = fullLabel.split(': ')[1];
-                                    
+                                    const label = context.dataset.label || '';
                                     if (context.dataset.type === 'scatter') {
-                                        // マーカーのツールチップ (納品日、START)
-                                        const date = dayjs(context.parsed.x).format('YYYY/MM/DD');
-                                        return `${deliveryName} - ${taskName}: ${date}`;
-                                    } else {
-                                        // タスクバー (スタックバー) のツールチップ
-                                        // スタック内の累積値を計算して開始日を特定
-                                        let cumulativeDuration = 0;
-                                        
-                                        // 現在のデータセットまでをループして累積日数を計算
-                                        for (let i = 0; i < context.datasetIndex; i++) {
-                                            const ds = context.chart.data.datasets[i];
-                                            // 同じスタックグループに属し、データが存在する場合のみ加算
-                                            if (ds.stack === deliveryIndex && ds.data[deliveryIndex] !== undefined && ds.data[deliveryIndex] > 0) {
-                                                cumulativeDuration += ds.data[deliveryIndex];
-                                            }
-                                        }
-
-                                        const startDate = chartStartDate.add(cumulativeDuration, 'day');
-                                        const taskDuration = context.parsed.x;
-                                        const endDate = startDate.add(taskDuration, 'day').subtract(1, 'day');
-
-                                        return `${deliveryName}: ${taskName} (${taskDuration}日): ${startDate.format('YYYY/MM/DD')} - ${endDate.format('YYYY/MM/DD')}`;
+                                        return label.split(': ').join(' - ') + ': ' + dayjs(context.parsed.x).format('YYYY/MM/DD');
                                     }
+                                    return label;
                                 }
                             }
                         }
