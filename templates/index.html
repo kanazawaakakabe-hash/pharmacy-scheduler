@@ -335,7 +335,7 @@
             return color;
         }
 
-        // --- ガントチャート描画 (スタックバー方式) ---
+        // --- ガントチャート描画 (スタックバー方式 - 最終修正版) ---
         function renderGanttChart() {
             const ctx = document.getElementById('ganttChart');
             if (!ctx) return;
@@ -356,6 +356,12 @@
             
             schedules.forEach((delivery, deliveryIndex) => {
                 deliveryLabels.push(delivery.delivery_name || `納品先 ${deliveryIndex + 1}`);
+            });
+            
+            // Y軸ラベルの数（納品先の数）を取得
+            const labelCount = deliveryLabels.length;
+            
+            schedules.forEach((delivery, deliveryIndex) => {
                 
                 // タスクバー描画用の累積日数を初期化
                 let cumulativeDuration = 0;
@@ -370,30 +376,39 @@
                         maxEndDate = end;
                     }
 
-                    // 基準日 (チャート開始日) からタスク開始日までの日数（透明なバー）を計算
-                    const startDuration = start.diff(chartStartDate.add(cumulativeDuration, 'day'), 'day', true);
+                    // 基準日 (累積期間の終わり) からタスク開始日までの日数（透明なバー）を計算
+                    const currentCumulativeEnd = chartStartDate.add(cumulativeDuration, 'day');
+                    const startDuration = start.diff(currentCumulativeEnd, 'day', true);
                     const taskDuration = end.add(1, 'day').diff(start, 'day', true);
                     
                     // 2. 透明なバーのデータセット (開始位置調整用)
                     if (startDuration > 0) {
+                         // ★ 修正ポイント: labelCount分の0埋め配列を作成し、現在の deliveryIndex に値をセット ★
+                         const baseDataArray = new Array(labelCount).fill(0);
+                         baseDataArray[deliveryIndex] = startDuration;
+
                          datasets.push({
-                            label: `${delivery.delivery_name}: ベース`,
-                            data: [startDuration], // チャート開始日から最初の工程開始日までの長さ
+                            label: `${delivery.delivery_name}: ベース (${startDuration}日)`,
+                            data: baseDataArray, // Y軸の長さに合わせた配列を使用
                             backgroundColor: 'rgba(0, 0, 0, 0)', // 透明
                             borderColor: 'rgba(0, 0, 0, 0)', // 透明
                             categoryPercentage: 0.8,
                             barPercentage: 0.8,
                             stack: deliveryIndex, // スタックを適用
                             borderWidth: 0,
-                            hidden: true // 凡例に表示しない
+                            hidden: true
                         });
                         cumulativeDuration += startDuration;
                     }
 
                     // 3. 実際のタスクバーのデータセット
+                    // ★ 修正ポイント: labelCount分の0埋め配列を作成し、現在の deliveryIndex に値をセット ★
+                    const taskDataArray = new Array(labelCount).fill(0);
+                    taskDataArray[deliveryIndex] = taskDuration;
+
                     datasets.push({
                         label: `${delivery.delivery_name}: ${task.name}`, 
-                        data: [taskDuration], // タスクの長さ (日数)
+                        data: taskDataArray, // Y軸の長さに合わせた配列を使用
                         backgroundColor: getTaskColor(task.name),
                         borderColor: getTaskColor(task.name),
                         borderWidth: 1,
@@ -504,14 +519,15 @@
                                         // 現在のデータセットまでをループして累積日数を計算
                                         for (let i = 0; i < context.datasetIndex; i++) {
                                             const ds = context.chart.data.datasets[i];
-                                            if (ds.stack === deliveryIndex && ds.data[deliveryIndex] !== undefined) {
+                                            // 同じスタックグループに属し、データが存在する場合のみ加算
+                                            if (ds.stack === deliveryIndex && ds.data[deliveryIndex] !== undefined && ds.data[deliveryIndex] > 0) {
                                                 cumulativeDuration += ds.data[deliveryIndex];
                                             }
                                         }
 
                                         const startDate = chartStartDate.add(cumulativeDuration, 'day');
                                         const taskDuration = context.parsed.x;
-                                        const endDate = startDate.add(taskDuration, 'day').subtract(1, 'day'); // 終了日はタスク日数-1
+                                        const endDate = startDate.add(taskDuration, 'day').subtract(1, 'day');
 
                                         return `${deliveryName}: ${taskName} (${taskDuration}日): ${startDate.format('YYYY/MM/DD')} - ${endDate.format('YYYY/MM/DD')}`;
                                     }
