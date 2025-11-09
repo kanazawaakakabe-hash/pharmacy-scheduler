@@ -5,17 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>薬局納品スケジュールシミュレーター</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-dayjs-4@1.0.1/dist/chartjs-adapter-dayjs-4.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.10.7/dayjs.min.js"></script>
     
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+
     <style>
         .process-input-group {
             margin-bottom: 10px;
         }
         .gantt-chart-container {
             width: 100%;
-            height: 400px; /* ガントチャートの高さを固定 */
+            height: 600px; /* Google Chartsは高さが必要 */
             margin-top: 20px;
         }
         .start-date-box {
@@ -32,7 +31,7 @@
             background-color: #f8f8f8;
         }
         .process-days-input {
-            width: 80px; /* 所要日数の入力幅を調整 */
+            width: 80px;
         }
         .process-list-container {
             max-height: 400px; 
@@ -54,7 +53,7 @@
 
     {% if all_schedules %}
     <div class="gantt-chart-container">
-        <canvas id="ganttChart"></canvas>
+        <div id="ganttChartDiv" style="width: 100%; height: 100%;"></div>
     </div>
     {% endif %}
 
@@ -133,7 +132,7 @@
                                     <input type="number" class="form-control process-days-input" 
                                            name="{{ days_key }}" 
                                            value="{{ process_days_form.get(days_key, '1') }}" 
-                                           min="1" step="0.5" required>
+                                           min="1" step="1" required>
                                     <span class="input-group-text">営業日</span>
                                 </div>
                             </td>
@@ -176,7 +175,7 @@
                             <td>
                                 <div class="input-group input-group-sm">
                                     <input type="number" class="form-control process-days-input" 
-                                           name="process_{{ p_index }}_days_0" value="1" min="1" step="0.5" required>
+                                           name="process_{{ p_index }}_days_0" value="1" min="1" step="1" required>
                                     <span class="input-group-text">営業日</span>
                                 </div>
                             </td>
@@ -204,6 +203,7 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
+        
         let deliveryIndex = {{ delivery_names_form|length if delivery_names_form else 1 }};
 
         // --- 納品先追加/削除機能 ---
@@ -246,7 +246,7 @@
                         <td>
                             <div class="input-group input-group-sm">
                                 <input type="number" class="form-control process-days-input" 
-                                       name="process_${p_index}_days_${newDeliveryIndex}" value="1" min="1" step="0.5" required>
+                                       name="process_${p_index}_days_${newDeliveryIndex}" value="1" min="1" step="1" required>
                                 <span class="input-group-text">営業日</span>
                             </div>
                         </td>
@@ -265,7 +265,6 @@
             updateDeliveryIndexes();
         });
 
-        // 削除ボタンのリスナー (イベントデリゲーションを使用)
         document.getElementById('deliveryContainer').addEventListener('click', function(e) {
             if (e.target.classList.contains('remove-delivery-btn')) {
                 const deliveryBox = e.target.closest('.delivery-box');
@@ -278,7 +277,6 @@
             }
         });
 
-        // 納品先削除時のインデックス更新
         function updateDeliveryIndexes() {
             const boxes = document.querySelectorAll('.delivery-box');
             boxes.forEach((box, index) => {
@@ -320,151 +318,113 @@
                 }
             }
         });
+        
+        // --- Google Chartsの描画関数 ---
 
-        // --- タスクカラー設定 ---
-        function getTaskColor(taskName) {
-            let hash = 0;
-            for (let i = 0; i < taskName.length; i++) {
-                hash = taskName.charCodeAt(i) + ((hash << 5) - hash);
-            }
-            let color = '#';
-            for (let i = 0; i < 3; i++) {
-                const value = (hash >> (i * 8)) & 0xFF;
-                color += ('00' + value.toString(16)).substr(-2);
-            }
-            return color;
-        }
+        // Google Chartsのロードとコールバック設定
+        google.charts.load('current', {'packages':['gantt']});
+        google.charts.setOnLoadCallback(drawChart);
 
-        // --- ガントチャート描画 (初期のシンプルな Bar Chart 試作版) ---
-        function renderGanttChart() {
-            const ctx = document.getElementById('ganttChart');
-            if (!ctx) return;
+        function drawChart() {
+            const container = document.getElementById('ganttChartDiv');
+            if (!container) return;
 
-            if (Chart.getChart(ctx)) {
-                Chart.getChart(ctx).destroy();
-            }
-
+            // Jinja2テンプレートからPythonのデータをJSONとして受け取り、JSオブジェクトにパース
             const schedules = JSON.parse('{{ all_schedules | tojson | safe }}');
             if (schedules.length === 0) return;
 
-            const datasets = [];
-            const deliveryLabels = [];
-            let maxEndDate = dayjs('{{ gantt_fixed_start_date | default("2025-01-01") }}');
+            const data = new google.visualization.DataTable();
+            // カラム定義
+            data.addColumn('string', 'Task ID');
+            data.addColumn('string', 'Task Name');
+            data.addColumn('string', 'Resource'); // 納品先名
+            data.addColumn('date', 'Start Date');
+            data.addColumn('date', 'End Date');
+            data.addColumn('number', 'Duration'); 
+            data.addColumn('number', 'Percent Complete'); 
+            data.addColumn('string', 'Dependencies'); 
+
+            let rowCount = 0;
 
             schedules.forEach((delivery, deliveryIndex) => {
                 const deliveryName = delivery.delivery_name || `納品先 ${deliveryIndex + 1}`;
-                deliveryLabels.push(deliveryName);
-
-                // 各工程のデータセットを準備
-                delivery.schedule.forEach(task => {
-                    const start = dayjs(task.start);
-                    const end = dayjs(task.end);
-                    
-                    if (end.isAfter(maxEndDate)) {
-                        maxEndDate = end;
-                    }
-
-                    // 初期に試みた、期間を示すデータ形式
-                    datasets.push({
-                        label: `${deliveryName}: ${task.name}`, 
-                        data: [{ 
-                            x: [start.valueOf(), end.valueOf()], 
-                            y: deliveryIndex 
-                        }],
-                        backgroundColor: getTaskColor(task.name),
-                        borderColor: getTaskColor(task.name),
-                        borderWidth: 1,
-                        borderRadius: 4,
-                        categoryPercentage: 0.8,
-                        barPercentage: 0.8,
-                        // type: 'bar' や stack 設定は Chart.js 標準機能で期間描画を意図的に試す
-                    });
-                });
-
-                // マーカー
-                const deliveryDate = dayjs(delivery.delivery_date);
-                const startDate = dayjs(delivery.start_date);
                 
-                datasets.push({
-                    label: `${deliveryName}: 納品`,
-                    data: [{ x: deliveryDate.valueOf(), y: deliveryIndex }],
-                    backgroundColor: 'red',
-                    pointRadius: 6,
-                    pointStyle: 'rectRot',
-                    type: 'scatter', 
-                });
-                datasets.push({
-                    label: `${deliveryName}: START`,
-                    data: [{ x: startDate.valueOf(), y: deliveryIndex }],
-                    backgroundColor: 'green',
-                    pointRadius: 6,
-                    pointStyle: 'rectRot',
-                    type: 'scatter',
-                });
-            });
+                // 1. 全体発注START（マーカー）
+                data.addRow([
+                    `Start-${deliveryIndex}`, 
+                    `【START】`,
+                    deliveryName,
+                    eval(delivery.start_date_js), // evalでnew Date(...)を実行
+                    eval(delivery.start_date_js), 
+                    1000 * 60 * 60 * 24 * 0.1, // 期間を短く設定（1日の1/10）
+                    0, 
+                    null
+                ]);
+                rowCount++;
 
-            // Chart.jsの設定
-            new Chart(ctx, {
-                type: 'bar', // バーチャートで期間表示を試みる
-                data: {
-                    labels: deliveryLabels,
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    indexAxis: 'y', // 横向きのバーチャート
-                    scales: {
-                        x: {
-                            type: 'time',
-                            time: {
-                                unit: 'day',
-                                tooltipFormat: 'YYYY/MM/DD',
-                                displayFormats: {
-                                    day: 'M/D(ddd)'
-                                }
-                            },
-                            // ガントチャートの開始日を固定
-                            min: dayjs('{{ gantt_fixed_start_date | default("2025-01-01") }}').valueOf(),
-                            max: maxEndDate.add(7, 'day').valueOf(), 
-                            stacked: false, // スタックなし
-                            title: {
-                                display: true,
-                                text: '日付'
-                            },
-                        },
-                        y: {
-                            labels: deliveryLabels,
-                            title: {
-                                display: true,
-                                text: '納品先'
-                            },
-                            reverse: true
-                        }
+                // 2. 各工程のスケジュール
+                delivery.schedule.forEach((task, taskIndex) => {
+                    const taskId = `${deliveryIndex}-${taskIndex}`;
+                    
+                    data.addRow([
+                        taskId,
+                        task.name,
+                        deliveryName,
+                        eval(task.start_js),   // 開始日
+                        eval(task.end_js),     // 終了日
+                        null,                  // Durationは自動計算
+                        100,                   // 100%完了 (バーとして表示)
+                        (taskIndex > 0) ? `${deliveryIndex}-${taskIndex - 1}` : `Start-${deliveryIndex}` // 依存関係
+                    ]);
+                    rowCount++;
+                });
+
+                // 3. 納品日（マーカー）
+                const lastTaskId = `${deliveryIndex}-${delivery.schedule.length - 1}`;
+                
+                data.addRow([
+                    `Delivery-${deliveryIndex}`, 
+                    `【納品】`,
+                    deliveryName,
+                    // delivery_date は YYYY-MM-DD 形式なので、手動で new Date() 形式に変換
+                    eval(`new Date(${delivery.delivery_date.replace(/-/g, ',')})`),
+                    eval(`new Date(${delivery.delivery_date.replace(/-/g, ',')})`),
+                    1000 * 60 * 60 * 24 * 0.1, // 期間を短く設定
+                    100, 
+                    lastTaskId
+                ]);
+                rowCount++;
+            });
+            
+            // オプション設定
+            const options = {
+                height: 50 + (rowCount * 40), 
+                gantt: {
+                    defaultStartDate: eval('{{ all_schedules[0].start_date_js if all_schedules else "new Date()" }}'),
+                    criticalPathEnabled: false, 
+                    arrow: {
+                        angle: 100,
+                        width: 5,
+                        color: 'red',
+                        radius: 0
                     },
-                    plugins: {
-                        legend: {
-                            display: false 
-                        },
-                        tooltip: {
-                             callbacks: {
-                                // ツールチップのカスタムロジックは初期状態では省略
-                                label: function(context) {
-                                    const label = context.dataset.label || '';
-                                    if (context.dataset.type === 'scatter') {
-                                        return label.split(': ').join(' - ') + ': ' + dayjs(context.parsed.x).format('YYYY/MM/DD');
-                                    }
-                                    return label;
-                                }
-                            }
-                        }
-                    }
+                    barCornerRadius: 4,
+                    // カラーパレット (タスクの種類ごとに色分けされます)
+                    palette: [
+                        { "color": "#1f77b4" }, 
+                        { "color": "#ff7f0e" }, 
+                        { "color": "#2ca02c" }, 
+                        { "color": "#d62728" },
+                        { "color": "#9467bd" },
+                        { "color": "#8c564b" },
+                        { "color": "#e377c2" },
+                        { "color": "#7f7f7f" }
+                    ]
                 }
-            });
-        }
+            };
 
-        if (document.getElementById('ganttChart')) {
-            renderGanttChart();
+            const chart = new google.visualization.Gantt(container);
+            chart.draw(data, options);
         }
 
     });
