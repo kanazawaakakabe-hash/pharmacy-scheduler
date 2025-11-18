@@ -3,626 +3,463 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>納期逆算シミュレーター</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f4f7f6; }
-        h1, h2 { color: #333; border-bottom: 2px solid #ccc; padding-bottom: 5px; }
-        .container { max-width: 1200px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-        .form-section { margin-bottom: 30px; padding: 15px; border: 1px solid #ddd; border-radius: 6px; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input[type="date"], input[type="text"], input[type="number"] { padding: 10px; border: 1px solid #ccc; border-radius: 4px; width: 100%; box-sizing: border-box; }
-        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; transition: background-color 0.3s; }
-        button:hover { background-color: #0056b3; }
-        .result-box { background-color: #e9f7ef; border: 2px solid #28a745; padding: 20px; margin-top: 20px; border-radius: 6px; text-align: center; }
-        .result-box h2 { color: #28a745; margin-top: 0; }
-        .process-config, .delivery-group { border: 1px solid #cce5ff; padding: 15px; margin-bottom: 20px; background-color: #e6f3ff; border-radius: 6px; }
-        .process-config-row, .delivery-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
-        .process-config-row input[type="text"], .process-config-row input[type="number"], 
-        .delivery-row input[type="text"], .delivery-row input[type="number"] { flex-grow: 1; }
-        .process-days-input { width: 80px; text-align: right; }
-        .delete-btn { background-color: #dc3545; }
-        .delete-btn:hover { background-color: #c82333; }
-        .add-btn { background-color: #28a745; }
-        .add-btn:hover { background-color: #1e7e34; }
-        
-        /* ガントチャート スタイル */
-        .gantt-chart { overflow-x: auto; margin-top: 30px; }
-        /* .gantt-container は削除し、flex構造を再構築 */
-        .gantt-row-header { position: sticky; left: 0; background: #f0f0f0; min-width: 150px; flex-shrink: 0; border-right: 1px solid #ddd; height: 30px; line-height: 30px; padding: 0 5px; font-weight: bold; border-bottom: 1px solid #ddd; }
-        .gantt-header-date, .gantt-cell { width: 30px; height: 30px; text-align: center; line-height: 30px; border-right: 1px solid #eee; border-bottom: 1px solid #eee; font-size: 10px; flex-shrink: 0; }
-        .gantt-header-row, .gantt-row { display: flex; } /* 日付ヘッダーとスケジュール行をflex化 */
-        .gantt-cell.sat, .gantt-cell.sun { background-color: #fdd; color: #dc3545; }
-        .gantt-cell.process { background-color: #007bff; color: white; }
-        .gantt-cell.process-start { background-color: #28a745; }
-        .gantt-cell.delivery { background-color: #6f42c1; }
-        .gantt-row-wrapper { display: flex; } /* 新しい行ラッパー */
+    <title>薬局納品スケジュールシミュレーター</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
 
+    <style>
+        .process-input-group {
+            margin-bottom: 10px;
+        }
+        .gantt-chart-container {
+            width: 100%;
+            height: 600px; /* Google Chartsは高さが必要 */
+            margin-top: 20px;
+        }
+        .start-date-box {
+            background-color: #e6ffe6;
+            border: 1px solid #c6e6c6;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .delivery-box {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin-bottom: 20px;
+            background-color: #f8f8f8;
+        }
+        .process-days-input {
+            width: 80px;
+        }
+        .process-list-container {
+            max-height: 400px; 
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+        }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h1>納品逆算シミュレーター</h1>
+<div class="container mt-4">
+    <h1 class="text-center mb-4">薬局納品スケジュールシミュレーター</h1>
     
-    <form method="POST" id="main-form">
+    <div class="start-date-box">
+        <h4>全納品先で最も早い発注開始日:</h4>
+        <h2>{{ global_start_date if global_start_date else '納品希望日を入力してください' }}</h2>
+    </div>
 
-        <div class="form-section">
-            <h2>1. 工程設定（マスターデータ）</h2>
-            <p>※ここを変更すると、すべての納品先グループに反映されます。</p>
-            <div id="process-list">
-                </div>
-            <button type="button" class="add-btn" onclick="addProcessName()">工程を追加</button>
-        </div>
-        
-        <div id="hidden-process-names" style="display: none;">
+    {% if all_schedules %}
+    <div class="gantt-chart-container">
+        <div id="ganttChartDiv" style="width: 100%; height: 100%;"></div>
+    </div>
+    {% endif %}
+
+    <h2 class="text-center mt-5 mb-3">薬局納品スケジュールシミュレーター (複数納品先対応)</h2>
+    
+    <hr>
+    
+    <div class="card p-3 mb-4">
+        <h4 class="mb-3">工程名の設定</h4>
+        <p class="text-muted">ここで工程名を設定した後、「スケジュールを逆算」ボタンを押してください。設定された工程名がすべての納品先グループに反映されます。</p>
+        <div id="processNameContainer">
             {% for name in process_names_form %}
-                <input type="hidden" name="process_name[]" value="{{ name }}">
+            <div class="input-group process-input-group">
+                <input type="text" class="form-control process-name-input" 
+                       name="process_name[]" value="{{ name }}" required>
+                <button type="button" class="btn btn-danger remove-process-btn">削除</button>
+            </div>
             {% endfor %}
-        </div>
-
-        <div class="form-section">
-            <h2>2. 納品先別 工程日数・希望日設定</h2>
-            <p>※納品先ごとに異なる納品希望日を設定できます。</p>
-            <div id="delivery-groups-container">
+            {% if not process_names_form %}
+            {% set default_names = ['ピッキング', 'ピッキング監査', '一包化', '一包化監査', 'ホチキス・テープ止め', 'ホチキス・テープ止め監査', 'カレンダーセット', 'カレンダー監査'] %}
+            {% for i in range(8) %}
+                <div class="input-group process-input-group">
+                    <input type="text" class="form-control process-name-input" 
+                           name="process_name[]" value="{{ default_names[i] }}" required>
+                    <button type="button" class="btn btn-danger remove-process-btn">削除</button>
                 </div>
-            <button type="button" class="add-btn" onclick="addDeliveryGroup()">納品先を追加</button>
+            {% endfor %}
+            {% endif %}
+        </div>
+        <div class="mt-2">
+            <button type="button" class="btn btn-success" id="addProcessBtn">工程を追加</button>
+        </div>
+    </div>
+
+    <form method="POST" id="mainForm">
+        
+        <div id="deliveryContainer">
+            {% for i in range(delivery_names_form|length) %}
+            {% set delivery_name = delivery_names_form[i] %}
+            {% set process_days_prefix = 'process_' %}
+            
+            <div class="delivery-box" data-delivery-index="{{ i }}">
+                <div class="d-flex justify-content-between mb-3">
+                    <h4>納品先 # {{ i + 1 }} :</h4>
+                    <button type="button" class="btn btn-danger btn-sm remove-delivery-btn">削除</button>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">納品先名:</label>
+                        <input type="text" class="form-control" name="delivery_name[]" value="{{ delivery_name }}" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">最終納品希望日:</label>
+                        {% set delivery_date_key = 'delivery_date_' ~ i %}
+                        <input type="date" class="form-control" name="{{ delivery_date_key }}" 
+                               value="{{ request.form.get(delivery_date_key) }}" required>
+                    </div>
+                </div>
+
+                <h5>工程スケジュール</h5>
+                <table class="table table-bordered">
+                    <thead>
+                        <tr>
+                            <th style="width: 70%;">工程名</th>
+                            <th style="width: 30%;">所要営業日数</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p_index in range(process_names_form|length) %}
+                        <tr>
+                            <td>{{ process_names_form[p_index] }}</td>
+                            <td>
+                                {% set days_key = process_days_prefix ~ p_index ~ '_days_' ~ i %}
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control process-days-input" 
+                                           name="{{ days_key }}" 
+                                           value="{{ process_days_form.get(days_key, '1') }}" 
+                                           min="1" step="1" required>
+                                    <span class="input-group-text">営業日</span>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endfor %}
+            
+            {% if not delivery_names_form %}
+            <div class="delivery-box" data-delivery-index="0">
+                <div class="d-flex justify-content-between mb-3">
+                    <h4>納品先 # 1 :</h4>
+                    <button type="button" class="btn btn-danger btn-sm remove-delivery-btn">削除</button>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">納品先名:</label>
+                        <input type="text" class="form-control" name="delivery_name[]" value="正徳円" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">最終納品希望日:</label>
+                        <input type="date" class="form-control" name="delivery_date_0" required>
+                    </div>
+                </div>
+                <h5>工程スケジュール</h5>
+                <table class="table table-bordered">
+                    <thead>
+                        <tr>
+                            <th style="width: 70%;">工程名</th>
+                            <th style="width: 30%;">所要営業日数</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set default_names = ['ピッキング', 'ピッキング監査', '一包化', '一包化監査', 'ホチキス・テープ止め', 'ホチキス・テープ止め監査', 'カレンダーセット', 'カレンダー監査'] %}
+                        {% for p_index in range(8) %}
+                        <tr>
+                            <td>{{ default_names[p_index] }}</td>
+                            <td>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control process-days-input" 
+                                           name="process_{{ p_index }}_days_0" value="1" min="1" step="1" required>
+                                    <span class="input-group-text">営業日</span>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
         </div>
 
-        <div class="form-group">
-            <button type="submit">スケジュールを計算</button>
+        <div class="d-flex justify-content-between mt-4">
+            <button type="button" class="btn btn-success" id="addDeliveryBtn">納品先を追加</button>
+            <button type="submit" class="btn btn-primary">スケジュールを逆算</button>
         </div>
     </form>
     
-    {% if global_start_date %}
-    <div class="result-box">
-        <h2>最も早い発注（全体の最終開始）希望日</h2>
-        <p style="font-size: 2em; font-weight: bold;">{{ global_start_date.strftime('%Y年%m月%d日') }} ({{ global_start_date.strftime('%a') }})</p>
-    </div>
-    {% endif %}
-
-    {% if all_schedules %}
-    <div class="form-section">
-        <h2>3. スケジュール詳細（ガントチャート）</h2>
-        <div class="gantt-chart" id="gantt-chart">
-            </div>
-    </div>
-    {% endif %}
-    
-    <div style="margin-top: 50px; padding-top: 20px; border-top: 1px solid #ccc;">
-        <h3>データ出力（デバッグ用）</h3>
-        {% for name, schedule in all_schedules.items() %}
-            <h4>{{ name }} のスケジュール</h4>
-            <table border="1" style="width: 100%; border-collapse: collapse;">
-                <tr><th>工程名</th><th>日数</th><th>開始日</th><th>終了日</th></tr>
-                {% for item in schedule %}
-                    <tr>
-                        <td>{{ item.name }}</td>
-                        <td>{{ item.days }}日</td>
-                        <td>{{ item.start.strftime('%Y-%m-%d (%a)') }}</td>
-                        <td>{{ item.end.strftime('%Y-%m-%d (%a)') }}</td>
-                    </tr>
-                {% endfor %}
-            </table>
-        {% endfor %}
+    <div class="start-date-box mt-5">
+        <h4>全納品先で最も早い発注開始日:</h4>
+        <h2>{{ global_start_date if global_start_date else '納品希望日を入力してください' }}</h2>
     </div>
 
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-// --- Jinjaから固定開始日とスケジュールデータを取得 ---
-const GANTT_FIXED_START_DATE = "{{ gantt_fixed_start_date }}";
-const allSchedules = {{ all_schedules | tojson | safe }} || {}; 
-const HOLIDAYS_LIST = {{ HOLIDAYS_LIST | tojson | safe }} || [];
-const FLASK_DEFAULT_PROCESS_NAMES = {{ process_names_form | tojson | safe }};
+    document.addEventListener('DOMContentLoaded', function() {
+        
+        let deliveryIndex = {{ delivery_names_form|length if delivery_names_form else 1 }};
 
-// --- 初期ロード時の設定 ---
-let currentProcessNames = [];
-let deliveryGroupCount = 0; 
+        // ★★★ 修正済み：クラッシュの原因となった行を削除 ★★★
 
-// ローカルストレージキー
-const STORAGE_KEY_PROCESS_NAMES = 'processNames';
-const STORAGE_KEY_DELIVERY_NAMES = 'deliveryNames';
-const STORAGE_KEY_PROCESS_DAYS = 'processDays';
-const STORAGE_KEY_DELIVERY_DATES = 'deliveryDates'; // 納品希望日のキーを追加
+        // --- 納品先追加/削除機能 ---
+        document.getElementById('addDeliveryBtn').addEventListener('click', function() {
+            const deliveryContainer = document.getElementById('deliveryContainer');
+            const newDeliveryIndex = deliveryContainer.children.length; 
+            const processNames = Array.from(document.querySelectorAll('.process-name-input')).map(input => input.value);
 
-document.addEventListener('DOMContentLoaded', () => {
-    
-    // 1. 工程名リストを初期化 
-    const hiddenProcessNames = document.querySelectorAll('#hidden-process-names input[name="process_name[]"]');
-    if (hiddenProcessNames.length > 0) {
-        hiddenProcessNames.forEach(input => {
-            const name = input.value.trim();
-            if (name) {
-                currentProcessNames.push(name);
-            }
-        });
-    }
+            let newDeliveryHtml = `
+            <div class="delivery-box" data-delivery-index="${newDeliveryIndex}">
+                <div class="d-flex justify-content-between mb-3">
+                    <h4>納品先 # ${newDeliveryIndex + 1} :</h4>
+                    <button type="button" class="btn btn-danger btn-sm remove-delivery-btn">削除</button>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">納品先名:</label>
+                        <input type="text" class="form-control" name="delivery_name[]" value="" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">最終納品希望日:</label>
+                        <input type="date" class="form-control" name="delivery_date_${newDeliveryIndex}" required>
+                    </div>
+                </div>
+                <h5>工程スケジュール</h5>
+                <table class="table table-bordered">
+                    <thead>
+                        <tr>
+                            <th style="width: 70%;">工程名</th>
+                            <th style="width: 30%;">所要営業日数</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
 
-    if (currentProcessNames.length === 0 || (currentProcessNames.length === 1 && currentProcessNames[0] === '')) {
-         currentProcessNames = FLASK_DEFAULT_PROCESS_NAMES.filter(name => name.trim() !== ''); 
-    }
-    
-    // 2. 工程名設定UIの描画
-    renderProcessNames();
-
-    // 3. 納品先グループの初期ロード
-    const deliveryNamesForm = {{ delivery_names_form | tojson | safe }};
-    const processDaysForm = {{ process_days_form | tojson | safe }} || {}; 
-    const deliveryDatesForm = {{ delivery_dates_form | tojson | safe }} || {}; // NEW: 納品希望日のデータ
-    
-    if (deliveryNamesForm.length > 0) {
-        deliveryNamesForm.forEach((name, d_index) => {
-            const initialData = {
-                name: name,
-                days: {},
-                deliveryDate: deliveryDatesForm[d_index] || '' // NEW: 納品希望日を初期データに含める
-            };
-            currentProcessNames.forEach((_, p_index) => {
-                const key = `process_${p_index}_days_${d_index}`;
-                initialData.days[key] = processDaysForm[key] || '';
+            processNames.forEach((name, p_index) => {
+                newDeliveryHtml += `
+                    <tr>
+                        <td>${name}</td>
+                        <td>
+                            <div class="input-group input-group-sm">
+                                <input type="number" class="form-control process-days-input" 
+                                       name="process_${p_index}_days_${newDeliveryIndex}" value="1" min="1" step="1" required>
+                                <span class="input-group-text">営業日</span>
+                            </div>
+                        </td>
+                    </tr>
+                `;
             });
-            
-            addDeliveryGroup(d_index, initialData);
-        });
-        deliveryGroupCount = deliveryNamesForm.length;
-    } else {
-        addDeliveryGroup(0);
-    }
-    
-    // 4. ガントチャートの描画
-    if (Object.keys(allSchedules).length > 0) {
-        generateCalendarChart();
-    }
-    
-    // 5. ローカルストレージからの復元を試みる (初回ロード時のみ)
-    if (Object.keys(allSchedules).length === 0) {
-        loadSettingsFromLocalStorage();
-    }
-});
 
-
-// ----------------------------------------------------
-// A. 工程名リストの管理 (データ一元化のコアロジック)
-// ----------------------------------------------------
-
-function renderProcessNames() {
-    const list = document.getElementById('process-list');
-    list.innerHTML = ''; 
-
-    const hiddenList = document.getElementById('hidden-process-names');
-    hiddenList.innerHTML = '';
-    
-    currentProcessNames.forEach((name, p_index) => {
-        const row = document.createElement('div');
-        row.className = 'process-config-row';
-        row.innerHTML = `
-            <input type="text" value="${name}" oninput="updateProcessName(${p_index}, this.value)" required>
-            <button type="button" class="delete-btn" onclick="removeProcessName(${p_index})">削除</button>
-        `;
-        list.appendChild(row);
-
-        const hiddenInput = document.createElement('input');
-        hiddenInput.type = 'hidden';
-        hiddenInput.name = 'process_name[]';
-        hiddenInput.value = name;
-        hiddenList.appendChild(hiddenInput);
-    });
-
-    saveProcessNamesToLocalStorage(); 
-    updateAllDeliveryGroups(); 
-}
-
-function addProcessName() {
-    currentProcessNames.push(''); 
-    renderProcessNames();
-}
-
-function updateProcessName(p_index, newName) {
-    currentProcessNames[p_index] = newName.trim();
-    renderProcessNames();
-}
-
-function removeProcessName(p_index) {
-    if (confirm('この工程を削除しますか？すべての日数設定が失われる可能性があります。')) {
-        currentProcessNames.splice(p_index, 1);
-        renderProcessNames();
-    }
-}
-
-
-// ----------------------------------------------------
-// B. 納品先グループの管理と更新
-// ----------------------------------------------------
-
-function updateAllDeliveryGroups() {
-    const container = document.getElementById('delivery-groups-container');
-    const groups = container.querySelectorAll('.delivery-group');
-    
-    const existingGroupsData = [];
-    groups.forEach(group => {
-        const d_index = parseInt(group.dataset.index);
-        const nameInput = group.querySelector('input[name="delivery_name[]"]');
-        const deliveryName = nameInput ? nameInput.value : '';
-        
-        // NEW: 納品希望日の値を取得
-        const dateInput = group.querySelector(`input[name="delivery_date_${d_index}"]`);
-        const deliveryDate = dateInput ? dateInput.value : '';
-
-        const existingDays = {};
-        group.querySelectorAll('.process-days-input').forEach(input => {
-            const keyParts = input.name.split('_'); 
-            const p_index = keyParts[1];
-            existingDays[p_index] = input.value;
-        });
-
-        existingGroupsData.push({ d_index, deliveryName, deliveryDate, existingDays });
-    });
-
-    // 既存のUIをクリア
-    container.innerHTML = ''; 
-
-    // データを使ってグループを再構築
-    existingGroupsData.forEach(data => {
-        const initialData = {
-            name: data.deliveryName,
-            days: {},
-            deliveryDate: data.deliveryDate // NEW: 日付を渡す
-        };
-        currentProcessNames.forEach((_, p_index) => {
-             initialData.days[`process_${p_index}_days_${data.d_index}`] = data.existingDays[p_index] || '1';
-        });
-
-        addDeliveryGroup(data.d_index, initialData);
-    });
-    
-    // deliveryGroupCount の更新
-    if (existingGroupsData.length > 0) {
-        // 次に追加するインデックスは、既存のインデックスの最大値+1
-        deliveryGroupCount = Math.max(...existingGroupsData.map(d => d.d_index)) + 1;
-    } else {
-        deliveryGroupCount = 0;
-    }
-}
-
-function addDeliveryGroup(d_index = deliveryGroupCount, initialData = {}) {
-    const container = document.getElementById('delivery-groups-container');
-    const group = document.createElement('div');
-    group.className = 'delivery-group';
-    group.dataset.index = d_index;
-    
-    const defaultProcessNames = currentProcessNames.length > 0 ? currentProcessNames : FLASK_DEFAULT_PROCESS_NAMES;
-    const validProcessNames = defaultProcessNames.filter(name => name.trim() !== "");
-    
-    if (validProcessNames.length === 0) {
-        alert('工程が一つも設定されていません。まず工程を追加してください。');
-        return;
-    }
-
-    const deliveryName = initialData.name || `納品先 ${d_index + 1}`;
-    const initialDateValue = initialData.deliveryDate || ''; // NEW: 初期日付値
-
-    let daysInputsHtml = '';
-    
-    validProcessNames.forEach((name, p_index) => {
-        const inputName = `process_${p_index}_days_${d_index}`;
-        const daysValue = (initialData.days && initialData.days[inputName]) ? initialData.days[inputName] : '1'; 
-        
-        daysInputsHtml += `
-            <div class="delivery-row">
-                <label style="min-width: 150px;">${name}</label>
-                <input type="number" name="${inputName}" class="process-days-input" value="${daysValue}" min="0" required 
-                       step="1" oninput="saveProcessDaysToLocalStorage(this)">
-                <span style="min-width: 20px;">日</span>
+            newDeliveryHtml += `
+                    </tbody>
+                </table>
             </div>
-        `;
-    });
-
-    group.innerHTML = `
-        <div class="delivery-row">
-            <h3 style="flex-grow: 1; margin: 0;">納品先名:</h3>
-            <input type="text" name="delivery_name[]" value="${deliveryName}" required 
-                   oninput="saveDeliveryNamesToLocalStorage()">
-            <button type="button" class="delete-btn" onclick="removeDeliveryGroup(${d_index})">納品先を削除</button>
-        </div>
-        <div class="delivery-row" style="margin-top: 10px;">
-            <label for="delivery_date_${d_index}" style="min-width: 150px; font-weight: bold;">納品希望日:</label>
-            <input type="date" id="delivery_date_${d_index}" name="delivery_date_${d_index}" 
-                   value="${initialDateValue}" required oninput="saveDeliveryDatesToLocalStorage(this)">
-            <span style="min-width: 20px;"></span>
-        </div>
-        <hr>
-        ${daysInputsHtml}
-    `;
-
-    const existingGroup = container.querySelector(`[data-index="${d_index}"]`);
-    if (existingGroup) {
-        container.replaceChild(group, existingGroup);
-    } else {
-        container.appendChild(group);
-        if (d_index === deliveryGroupCount) {
-             deliveryGroupCount++;
-        }
-    }
-    
-    saveDeliveryNamesToLocalStorage();
-    saveDeliveryDatesToLocalStorage(document.getElementById(`delivery_date_${d_index}`));
-}
-
-function removeDeliveryGroup(d_index) {
-    if (confirm(`納品先 ${d_index + 1} を削除しますか？`)) {
-        const container = document.getElementById('delivery-groups-container');
-        const groupToRemove = container.querySelector(`[data-index="${d_index}"]`);
-        if (groupToRemove) {
-            groupToRemove.remove();
+            `;
             
-            saveDeliveryNamesToLocalStorage();
-            removeProcessDaysFromLocalStorage(d_index);
-            removeDeliveryDatesFromLocalStorage(d_index); // NEW: 日付のローカルストレージも削除
-        }
-    }
-}
+            deliveryContainer.insertAdjacentHTML('beforeend', newDeliveryHtml);
+            deliveryIndex++;
+            updateDeliveryIndexes();
+        });
 
+        document.getElementById('deliveryContainer').addEventListener('click', function(e) {
+            if (e.target.classList.contains('remove-delivery-btn')) {
+                const deliveryBox = e.target.closest('.delivery-box');
+                if (deliveryBox && document.getElementById('deliveryContainer').children.length > 1) {
+                    deliveryBox.remove();
+                    updateDeliveryIndexes();
+                } else {
+                    alert("納品先は最低1つ必要です。");
+                }
+            }
+        });
 
-// ----------------------------------------------------
-// C. ローカルストレージ (永続化)
-// ----------------------------------------------------
-
-function loadSettingsFromLocalStorage() {
-    // 納品先名の復元は、Flask側で復元されない GETリクエスト時のみ行う
-    if (document.querySelectorAll('.delivery-group').length === 0) {
-        const savedNames = JSON.parse(localStorage.getItem(STORAGE_KEY_DELIVERY_NAMES));
-        const savedDays = JSON.parse(localStorage.getItem(STORAGE_KEY_PROCESS_DAYS));
-        const savedProcessNames = JSON.parse(localStorage.getItem(STORAGE_KEY_PROCESS_NAMES));
-        const savedDates = JSON.parse(localStorage.getItem(STORAGE_KEY_DELIVERY_DATES)); // NEW: 日付をロード
-
-        if (savedProcessNames && savedProcessNames.length > 0) {
-            currentProcessNames = savedProcessNames;
-            renderProcessNames(); 
-        }
-
-        if (savedNames && savedNames.length > 0) {
-            let maxIndex = 0;
-            savedNames.forEach((name, d_index) => {
-                const initialData = {
-                    name: name,
-                    days: {},
-                    deliveryDate: savedDates ? (savedDates[d_index] || '') : '' // NEW: 日付を初期データに
-                };
-                currentProcessNames.forEach((_, p_index) => {
-                    const key = `process_${p_index}_days_${d_index}`;
-                    initialData.days[key] = savedDays ? (savedDays[key] || '1') : '1';
+        function updateDeliveryIndexes() {
+            const boxes = document.querySelectorAll('.delivery-box');
+            boxes.forEach((box, index) => {
+                box.setAttribute('data-delivery-index', index);
+                box.querySelector('h4').textContent = `納品先 # ${index + 1} :`;
+                
+                const deliveryDateInput = box.querySelector('input[name^="delivery_date_"]');
+                if (deliveryDateInput) {
+                    deliveryDateInput.name = `delivery_date_${index}`;
+                }
+                
+                const processDaysInputs = box.querySelectorAll('input[name^="process_"]');
+                processDaysInputs.forEach(input => {
+                    const parts = input.name.split('_');
+                    input.name = `process_${parts[1]}_days_${index}`;
                 });
-                addDeliveryGroup(d_index, initialData);
-                if (d_index > maxIndex) maxIndex = d_index;
             });
-            deliveryGroupCount = maxIndex + 1;
-        } else {
-            addDeliveryGroup(0); 
-        }
-    }
-}
-
-function saveProcessNamesToLocalStorage() {
-    localStorage.setItem(STORAGE_KEY_PROCESS_NAMES, JSON.stringify(currentProcessNames));
-}
-
-function saveDeliveryNamesToLocalStorage() {
-    const names = {};
-    document.querySelectorAll('#delivery-groups-container input[name="delivery_name[]"]').forEach(input => {
-        const group = input.closest('.delivery-group');
-        const d_index = group.dataset.index;
-        names[d_index] = input.value;
-    });
-    const sortedNames = Object.keys(names).sort((a, b) => parseInt(a) - parseInt(b)).map(key => names[key]);
-    localStorage.setItem(STORAGE_KEY_DELIVERY_NAMES, JSON.stringify(sortedNames));
-}
-
-function saveProcessDaysToLocalStorage(inputElement) {
-    const allDays = JSON.parse(localStorage.getItem(STORAGE_KEY_PROCESS_DAYS)) || {};
-    allDays[inputElement.name] = inputElement.value;
-    localStorage.setItem(STORAGE_KEY_PROCESS_DAYS, JSON.stringify(allDays));
-}
-
-function saveDeliveryDatesToLocalStorage(inputElement) { // NEW: 日付のローカルストレージ保存
-    if (!inputElement) return;
-    const allDates = JSON.parse(localStorage.getItem(STORAGE_KEY_DELIVERY_DATES)) || {};
-    
-    // nameが "delivery_date_X" なので、Xを取り出す
-    const d_index = inputElement.name.split('_').pop(); 
-    allDates[d_index] = inputElement.value;
-    
-    localStorage.setItem(STORAGE_KEY_DELIVERY_DATES, JSON.stringify(allDates));
-}
-
-function removeDeliveryDatesFromLocalStorage(d_index) { // NEW: 日付のローカルストレージ削除
-    const allDates = JSON.parse(localStorage.getItem(STORAGE_KEY_DELIVERY_DATES)) || {};
-    delete allDates[d_index];
-    localStorage.setItem(STORAGE_KEY_DELIVERY_DATES, JSON.stringify(allDates));
-}
-
-function removeProcessDaysFromLocalStorage(d_index) {
-    const allDays = JSON.parse(localStorage.getItem(STORAGE_KEY_PROCESS_DAYS)) || {};
-    const newDays = {};
-    for (const key in allDays) {
-        if (!key.endsWith(`_days_${d_index}`)) {
-            newDays[key] = allDays[key];
-        }
-    }
-    localStorage.setItem(STORAGE_KEY_PROCESS_DAYS, JSON.stringify(newDays));
-}
-
-
-// ----------------------------------------------------
-// D. ガントチャート描画ロジック（レイアウト修正済み）
-// ----------------------------------------------------
-
-const formatDate = (date) => {
-    // タイムゾーンのずれを防ぐために、日付文字列から直接Dateオブジェクトを作成
-    const d = new Date(date);
-    if (isNaN(d)) return '';
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-};
-
-const getDayName = (dayIndex) => {
-    const days = ['日', '月', '火', '水', '木', '金', '土'];
-    return days[dayIndex];
-};
-
-function generateCalendarChart() {
-    const chartContainer = document.getElementById('gantt-chart');
-    if (!chartContainer || !GANTT_FIXED_START_DATE) return;
-    
-    chartContainer.innerHTML = '';
-    
-    const startDate = new Date(GANTT_FIXED_START_DATE);
-    const CALENDAR_DAYS = 90;
-
-    // ----------------- 1. ヘッダーの描画 (レイアウト修正) -----------------
-    
-    const headerWrapper = document.createElement('div');
-    headerWrapper.style.display = 'flex'; 
-    
-    // 空のヘッダー部分 (納品先名と同じ幅を確保)
-    const emptyHeader = document.createElement('div');
-    emptyHeader.className = 'gantt-row-header date-label';
-    emptyHeader.style.minWidth = '160px'; // 幅を少し広げた
-    emptyHeader.style.border = 'none'; 
-    emptyHeader.style.visibility = 'hidden'; 
-    emptyHeader.style.height = '60px'; // 日付グリッドの高さに合わせる
-    headerWrapper.appendChild(emptyHeader); 
-
-    // 日付グリッド部分
-    const dateGrid = document.createElement('div');
-    dateGrid.className = 'gantt-grid';
-    
-    // Day Header Row (曜日)
-    const dayHeaderRow = document.createElement('div');
-    dayHeaderRow.className = 'gantt-header-row';
-    // Date Header Row (日付)
-    const dateHeaderRow = document.createElement('div');
-    dateHeaderRow.className = 'gantt-header-row';
-    
-    for (let i = 0; i < CALENDAR_DAYS; i++) {
-        const currentDate = new Date(startDate.getTime());
-        currentDate.setDate(startDate.getDate() + i);
-        const dateStr = formatDate(currentDate);
-
-        const dayIndex = currentDate.getDay(); // getUTCDay() -> getDay() に変更 (ローカルタイムで曜日を取得)
-        const dayName = getDayName(dayIndex); 
-
-        let dayClass = '';
-        if (dayIndex === 0 || dayIndex === 6) { 
-            dayClass = 'sun'; 
-        } 
-        
-        if (HOLIDAYS_LIST.includes(dateStr)) {
-            dayClass = 'sun'; 
+            deliveryIndex = boxes.length;
         }
 
-        const dayHeader = document.createElement('div');
-        dayHeader.className = `gantt-header-date ${dayClass}`;
-        dayHeader.textContent = dayName;
-        dayHeaderRow.appendChild(dayHeader);
-
-        const dateHeader = document.createElement('div');
-        dateHeader.className = `gantt-header-date ${dayClass}`;
-        dateHeader.textContent = currentDate.getDate();
-        dateHeaderRow.appendChild(dateHeader);
-    }
-    
-    dateGrid.appendChild(dayHeaderRow);
-    dateGrid.appendChild(dateHeaderRow);
-    
-    headerWrapper.appendChild(dateGrid); 
-    chartContainer.appendChild(headerWrapper); 
-
-    // ----------------- 2. スケジュールの描画 -----------------
-    
-    for (const [deliveryName, schedules] of Object.entries(allSchedules)) {
+        // --- 工程名追加/削除機能 ---
+        document.getElementById('addProcessBtn').addEventListener('click', function() {
+            const container = document.getElementById('processNameContainer');
+            const newProcessHtml = `
+            <div class="input-group process-input-group">
+                <input type="text" class="form-control process-name-input" 
+                       name="process_name[]" value="" required>
+                <button type="button" class="btn btn-danger remove-process-btn">削除</button>
+            </div>
+            `;
+            container.insertAdjacentHTML('beforeend', newProcessHtml);
+        });
         
-        const deliveryRowWrapper = document.createElement('div');
-        deliveryRowWrapper.className = 'gantt-row-wrapper'; // 新しいクラス
-        deliveryRowWrapper.style.display = 'flex'; 
-        
-        // 行ヘッダー (納品先名)
-        const deliveryHeader = document.createElement('div');
-        deliveryHeader.className = 'gantt-row-header';
-        deliveryHeader.textContent = deliveryName;
-        deliveryHeader.style.height = '30px'; 
-        deliveryHeader.style.lineHeight = '30px';
-        deliveryRowWrapper.appendChild(deliveryHeader); 
-        
-        const deliveryRow = document.createElement('div');
-        deliveryRow.className = 'gantt-row';
-        deliveryRow.style.display = 'flex'; 
-        
-        for (let i = 0; i < CALENDAR_DAYS; i++) {
-            const currentDate = new Date(startDate.getTime());
-            currentDate.setDate(startDate.getDate() + i);
-            const dateStr = formatDate(currentDate);
-
-            const dayIndex = currentDate.getDay();
-            
-            let cellClass = '';
-            if (dayIndex === 0 || dayIndex === 6 || HOLIDAYS_LIST.includes(dateStr)) {
-                cellClass = 'sun';
-            }
-
-            let processName = null;
-            let isDeliveryDay = false;
-
-            // スケジュールをチェック
-            for (const schedule of schedules) {
-                // Flaskから渡される日付文字列はISO形式なので、Dateオブジェクトに変換
-                const startStr = formatDate(new Date(schedule.start));
-                const endStr = formatDate(new Date(schedule.end));
-                
-                // 納品希望日の判定: スケジュール内の最終工程の終了日を納品日と見なす
-                if (schedules.length > 0) {
-                     const lastSchedule = schedules[schedules.length - 1];
-                     const deliveryDateStr = formatDate(new Date(lastSchedule.end));
-                     if (dateStr === deliveryDateStr) {
-                        isDeliveryDay = true;
-                     }
+        document.getElementById('processNameContainer').addEventListener('click', function(e) {
+            if (e.target.classList.contains('remove-process-btn')) {
+                const inputGroup = e.target.closest('.input-group');
+                if (inputGroup) {
+                    inputGroup.remove();
                 }
+            }
+        });
+        
+        // ★★★ 日付文字列を安全にDateオブジェクトに変換する関数 (変更なし) ★★★
+        function parseDateString(dateStr) {
+            // dateStr は 'YYYY-MM-DD' 形式を想定
+            if (!dateStr) return null;
+            const parts = dateStr.split('-');
+            if (parts.length !== 3) return null;
+
+            const year = parseInt(parts[0], 10);
+            // JavaScriptの月は0始まり (0=1月, 11=12月) なので、月(1-12)から1を引く
+            const month = parseInt(parts[1], 10) - 1; 
+            const day = parseInt(parts[2], 10);
+            
+            // new Date() を使用してDateオブジェクトを構築
+            return new Date(year, month, day);
+        }
+
+        // --- Google Chartsの描画関数 ★ 安全なパース処理を使用 (変更なし) ★ ---
+
+        google.charts.load('current', {'packages':['gantt']});
+        google.charts.setOnLoadCallback(drawChart);
+
+        function drawChart() {
+            const container = document.getElementById('ganttChartDiv');
+            if (!container) return;
+
+            // Jinja2テンプレートからPythonのデータをJSONとして受け取り、JSオブジェクトにパース
+            const schedules = JSON.parse('{{ all_schedules | tojson | safe }}');
+            if (schedules.length === 0) return;
+
+            const data = new google.visualization.DataTable();
+            // カラム定義
+            data.addColumn('string', 'Task ID');
+            data.addColumn('string', 'Task Name');
+            data.addColumn('string', 'Resource'); // 納品先名
+            data.addColumn('date', 'Start Date');
+            data.addColumn('date', 'End Date');
+            data.addColumn('number', 'Duration'); 
+            data.addColumn('number', 'Percent Complete'); 
+            data.addColumn('string', 'Dependencies'); 
+
+            let rowCount = 0;
+
+            schedules.forEach((delivery, deliveryIndex) => {
+                const deliveryName = delivery.delivery_name || `納品先 ${deliveryIndex + 1}`;
                 
-                // 工程期間内の判定
-                if (dateStr >= startStr && dateStr <= endStr) {
-                    processName = schedule.name;
-                    cellClass += ' process';
-                    if (dateStr === startStr) {
-                        cellClass += ' process-start';
+                // 1. 全体発注START（マーカー）
+                const startDateObj = parseDateString(delivery.start_date);
+
+                if (startDateObj) {
+                    data.addRow([
+                        `Start-${deliveryIndex}`, 
+                        `【START】`,
+                        deliveryName,
+                        startDateObj, 
+                        startDateObj, 
+                        1000 * 60 * 60 * 24 * 0.1, // 期間を短く設定（1日の1/10）
+                        0, 
+                        null
+                    ]);
+                    rowCount++;
+                }
+
+
+                // 2. 各工程のスケジュール
+                delivery.schedule.forEach((task, taskIndex) => {
+                    const taskId = `${deliveryIndex}-${taskIndex}`;
+                    const taskStartDate = parseDateString(task.start);
+                    const taskEndDate = parseDateString(task.end);
+                    
+                    if (taskStartDate && taskEndDate) {
+                         data.addRow([
+                            taskId,
+                            task.name,
+                            deliveryName,
+                            taskStartDate,   // 安全にパースしたDateオブジェクト
+                            taskEndDate,     // 安全にパースしたDateオブジェクト
+                            null,            // Durationは自動計算
+                            100,             // 100%完了 (バーとして表示)
+                            (taskIndex > 0) ? `${deliveryIndex}-${taskIndex - 1}` : `Start-${deliveryIndex}` // 依存関係
+                        ]);
+                        rowCount++;
                     }
+                });
+
+                // 3. 納品日（マーカー）
+                const deliveryDateObj = parseDateString(delivery.delivery_date);
+                const lastTaskId = `${deliveryIndex}-${delivery.schedule.length - 1}`;
+                
+                if (deliveryDateObj) {
+                     data.addRow([
+                        `Delivery-${deliveryIndex}`, 
+                        `【納品】`,
+                        deliveryName,
+                        deliveryDateObj,
+                        deliveryDateObj,
+                        1000 * 60 * 60 * 24 * 0.1, // 期間を短く設定
+                        100, 
+                        lastTaskId
+                    ]);
+                    rowCount++;
                 }
-            }
 
-            // 納品希望日のセル (最終工程終了日)
-            if (isDeliveryDay) { 
-                cellClass = ' delivery'; 
-                processName = '納品日';
-            }
+            });
+            
+            // オプション設定
+            const options = {
+                height: 50 + (rowCount * 40), 
+                gantt: {
+                    // defaultStartDate もパースした値を使用
+                    defaultStartDate: schedules.length > 0 ? parseDateString(schedules[0].start_date) : new Date(),
+                    criticalPathEnabled: false, 
+                    arrow: {
+                        angle: 100,
+                        width: 5,
+                        color: 'red',
+                        radius: 0
+                    },
+                    barCornerRadius: 4,
+                    // カラーパレット (タスクの種類ごとに色分けされます)
+                    palette: [
+                        { "color": "#1f77b4" }, 
+                        { "color": "#ff7f0e" }, 
+                        { "color": "#2ca02c" }, 
+                        { "color": "#d62728" },
+                        { "color": "#9467bd" },
+                        { "color": "#8c564b" },
+                        { "color": "#e377c2" },
+                        { "color": "#7f7f7f" }
+                    ]
+                }
+            };
 
-            const cell = document.createElement('div');
-            cell.className = `gantt-cell ${cellClass}`;
-            cell.title = `${dateStr} (${getDayName(dayIndex)}) - ${processName || '休日/空き'}`; 
-            
-            if (processName && processName !== '納品日') {
-                 cell.textContent = processName.substring(0, 1);
-            } else if (processName === '納品日') {
-                 cell.textContent = '納';
-            }
-            
-            deliveryRow.appendChild(cell);
+            const chart = new google.visualization.Gantt(container);
+            chart.draw(data, options);
         }
-        
-        deliveryRowWrapper.appendChild(deliveryRow);
-        chartContainer.appendChild(deliveryRowWrapper);
-    }
-}
+
+        // ... (後略：UI操作用のJavaScriptコード) ...
+
+    });
 </script>
 
 </body>
