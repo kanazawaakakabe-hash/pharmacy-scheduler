@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request
 from datetime import datetime, timedelta
+import os # ★追加：環境変数からポートを取得するために必要★
 
 app = Flask(__name__)
 
@@ -169,4 +170,6 @@ def index():
     )
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5001)
+    # ★★★ 修正箇所：デプロイ環境 (Renderなど) 向けにポート設定を追加 ★★★
+    port = int(os.environ.get("PORT", 5001))
+    app.run(host='0.0.0.0', port=port, debug=False)

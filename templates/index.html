@@ -206,8 +206,6 @@
         
         let deliveryIndex = {{ delivery_names_form|length if delivery_names_form else 1 }};
 
-        // ★★★ 修正済み：クラッシュの原因となった行を削除 ★★★
-
         // --- 納品先追加/削除機能 ---
         document.getElementById('addDeliveryBtn').addEventListener('click', function() {
             const deliveryContainer = document.getElementById('deliveryContainer');
