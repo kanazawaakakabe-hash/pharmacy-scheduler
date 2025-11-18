@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request
 from datetime import datetime, timedelta
-import os # ★追加：環境変数からポートを取得するために必要★
+import os
 
 app = Flask(__name__)
 
@@ -164,12 +164,12 @@ def index():
         process_days_form=process_days_form,
         process_names_form=process_names_form, 
         gantt_fixed_start_date=gantt_fixed_start_date, 
-        # ★★★ 修正箇所：未定義エラーを回避するため空の辞書を渡す ★★★
+        # ★★★ クラッシュ防止修正 ★★★
         delivery_dates_form={},
         request=request 
     )
 
 if __name__ == '__main__':
-    # ★★★ 修正箇所：デプロイ環境 (Renderなど) 向けにポート設定を追加 ★★★
+    # ★★★ ポート設定修正：Render対応 ★★★
     port = int(os.environ.get("PORT", 5001))
     app.run(host='0.0.0.0', port=port, debug=False)
