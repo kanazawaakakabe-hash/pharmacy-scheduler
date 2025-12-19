@@ -3,37 +3,68 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>薬局納品スケジュール(Ver 5.0)</title>
+    <title>薬局納品スケジュール(Ver 5.1)</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
     <style>
-        .start-date-box { background-color: #e6ffe6; border: 1px solid #c6e6c6; padding: 20px; margin-bottom: 20px; text-align: center; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        .gantt-chart-container { width: 100%; overflow-x: auto; margin-top: 20px; border: 1px solid #eee; padding: 15px; border-radius: 12px; background: #fff; }
-        .delivery-box { border: 1px solid #e0e0e0; padding: 20px; margin-bottom: 25px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-        .process-input-group { margin-bottom: 8px; }
-        h4 { color: #333; font-weight: bold; border-left: 5px solid #28a745; padding-left: 10px; margin-bottom: 20px; }
+        body { background-color: #f4f7f6; }
+        .start-date-box { 
+            background: linear-gradient(135deg, #e6ffe6 0%, #ffffff 100%); 
+            border: 2px solid #28a745; 
+            padding: 30px; 
+            margin-bottom: 30px; 
+            text-align: center; 
+            border-radius: 15px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+        }
+        .gantt-chart-container { 
+            width: 100%; 
+            overflow-x: auto; 
+            margin-top: 20px; 
+            border: 1px solid #dee2e6; 
+            padding: 20px; 
+            border-radius: 15px; 
+            background: #fff; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .delivery-box { 
+            border: none; 
+            padding: 25px; 
+            margin-bottom: 30px; 
+            background-color: #ffffff; 
+            border-radius: 15px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08); 
+        }
+        .process-input-group { margin-bottom: 10px; }
+        h4 { color: #2c3e50; font-weight: bold; border-left: 6px solid #007bff; padding-left: 15px; margin-bottom: 25px; }
+        .table { border-radius: 10px; overflow: hidden; }
+        .btn-primary { border-radius: 30px; font-weight: bold; }
+        .btn-success { border-radius: 30px; }
     </style>
 </head>
-<body class="bg-light">
+<body>
 
 <div class="container mt-5">
-    <h1 class="text-center mb-4">薬局納品シミュレーター</h1>
-    <p class="text-center text-muted mb-5">Ver 5.0: 横型タイムライン表示</p>
+    <h1 class="text-center mb-4" style="color: #2c3e50; font-weight: 800;">薬局納品シミュレーター</h1>
+    <p class="text-center text-muted mb-5">Ver 5.1: タイムライン表示・警告修正版</p>
     
     <div class="start-date-box">
-        <h5 class="text-muted">全体の発注開始期限（最も早い日）:</h5>
-        <h2 class="text-success">{{ global_start_date if global_start_date else '---' }}</h2>
+        <h5 class="text-muted">全体の発注開始期限（最も早い日）</h5>
+        <h2 class="text-success" style="font-size: 3rem; font-weight: 900;">
+            {{ global_start_date if global_start_date else '---' }}
+        </h2>
     </div>
 
     {% if all_schedules %}
     <div class="gantt-chart-container">
-        <h5 class="mb-3">📅 スケジュール推移</h5>
+        <h5 class="mb-4">📅 スケジュール・タイムライン</h5>
         <div id="timelineChart" style="width: 100%; min-height: 250px;"></div>
     </div>
     {% endif %}
 
-    <div class="card p-4 mt-5 shadow-sm border-0">
+    <div class="card p-4 mt-5 shadow-sm border-0" style="border-radius: 15px;">
         <h4>1. 工程名の共通設定</h4>
+        <p class="text-muted small">※ここで設定した工程がすべての納品先に自動反映されます。</p>
         <div id="processNameContainer">
             {% for name in process_names_form %}
             <div class="input-group process-input-group">
@@ -42,55 +73,63 @@
             </div>
             {% endfor %}
         </div>
-        <button type="button" class="btn btn-outline-success btn-sm mt-2" id="addProcessBtn">+ 工程を追加</button>
+        <button type="button" class="btn btn-outline-success btn-sm mt-3 w-25" id="addProcessBtn">+ 工程を追加</button>
     </div>
 
-    <form method="POST" id="mainForm" class="mt-4">
+    <form method="POST" id="mainForm" class="mt-5">
         <h4>2. 納品先と日数の入力</h4>
         <div id="deliveryContainer">
             {% for i in range(delivery_names_form|length) %}
             <div class="delivery-box" data-delivery-index="{{ i }}">
-                <div class="row align-items-center mb-4">
+                <div class="row align-items-end mb-4">
                     <div class="col-md-5">
-                        <label class="form-label font-weight-bold">納品先名</label>
-                        <input type="text" class="form-control" name="delivery_name[]" value="{{ delivery_names_form[i] }}" required>
+                        <label class="form-label fw-bold">納品先名</label>
+                        <input type="text" class="form-control form-control-lg" name="delivery_name[]" value="{{ delivery_names_form[i] }}" required>
                     </div>
                     <div class="col-md-5">
-                        <label class="form-label text-primary font-weight-bold">最終納品希望日</label>
-                        <input type="date" class="form-control border-primary" name="delivery_date_{{ i }}" value="{{ request.form.get('delivery_date_' ~ i) }}" required>
+                        <label class="form-label text-primary fw-bold">最終納品希望日</label>
+                        <input type="date" class="form-control form-control-lg border-primary" name="delivery_date_{{ i }}" value="{{ request.form.get('delivery_date_' ~ i) }}" required>
                     </div>
-                    <div class="col-md-2 text-end pt-4">
-                        <button type="button" class="btn btn-link text-danger remove-delivery-btn">削除</button>
+                    <div class="col-md-2 text-end">
+                        <button type="button" class="btn btn-link text-danger remove-delivery-btn text-decoration-none">✖ 削除</button>
                     </div>
                 </div>
-                <table class="table table-sm bg-white">
-                    <thead class="table-light"><tr><th>工程名</th><th>作業日数</th></tr></thead>
-                    <tbody>
-                        {% for p_index in range(process_names_form|length) %}
-                        <tr>
-                            <td class="align-middle">{{ process_names_form[p_index] }}</td>
-                            <td>
-                                <div class="input-group input-group-sm w-50">
-                                    <input type="number" class="form-control" name="process_{{ p_index }}_days_{{ i }}" value="{{ process_days_form.get('process_' ~ p_index ~ '_days_' ~ i, '1') }}" min="0" required>
-                                    <span class="input-group-text">日</span>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-dark">
+                            <tr>
+                                <th style="width: 60%;">工程名</th>
+                                <th style="width: 40%;">所要日数（営業日）</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p_index in range(process_names_form|length) %}
+                            <tr>
+                                <td>{{ process_names_form[p_index] }}</td>
+                                <td>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" name="process_{{ p_index }}_days_{{ i }}" value="{{ process_days_form.get('process_' ~ p_index ~ '_days_' ~ i, '1') }}" min="0" required>
+                                        <span class="input-group-text">日</span>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
             {% endfor %}
         </div>
         
-        <div class="d-flex justify-content-between align-items-center mt-5 mb-5">
-            <button type="button" class="btn btn-success px-4" id="addDeliveryBtn">+ 納品先を追加</button>
-            <button type="submit" class="btn btn-primary btn-lg px-5 shadow">スケジュールを逆算する</button>
+        <div class="d-flex justify-content-between align-items-center mt-5 mb-5 pb-5">
+            <button type="button" class="btn btn-success btn-lg px-4" id="addDeliveryBtn">＋ 納品先を追加</button>
+            <button type="submit" class="btn btn-primary btn-lg px-5 shadow-lg" style="background-color: #007bff; border: none;">
+                🚀 スケジュールを逆算する
+            </button>
         </div>
     </form>
 </div>
-
-
 
 <script>
     google.charts.load('current', {'packages':['timeline']});
@@ -134,10 +173,12 @@
         const options = {
             height: schedules.length * 80 + 100,
             timeline: { 
-                groupByRowLabel: true, // これで横につながります
-                rowLabelStyle: { fontSize: 14 },
-                barLabelStyle: { fontSize: 10 }
-            }
+                groupByRowLabel: true,
+                rowLabelStyle: { fontSize: 14, color: '#333' },
+                barLabelStyle: { fontSize: 11 }
+            },
+            // ★ カラー設定を固定配列にすることで 'undefined' 警告を解消
+            colors: ['#3366cc', '#dc3912', '#ff9900', '#109618', '#990099', '#0099c6', '#dd4477', '#66aa00']
         };
 
         chart.draw(dataTable, options);
@@ -145,13 +186,17 @@
 
     // 工程追加
     document.getElementById('addProcessBtn').addEventListener('click', () => {
+        const container = document.getElementById('processNameContainer');
         const div = document.createElement('div');
         div.className = 'input-group process-input-group';
-        div.innerHTML = '<input type="text" class="form-control" name="process_name[]" required><button type="button" class="btn btn-outline-danger remove-process-btn">削除</button>';
-        document.getElementById('processNameContainer').appendChild(div);
+        div.innerHTML = `
+            <input type="text" class="form-control" name="process_name[]" placeholder="新しい工程名" required>
+            <button type="button" class="btn btn-outline-danger remove-process-btn">削除</button>
+        `;
+        container.appendChild(div);
     });
 
-    // 削除イベントの委譲
+    // 削除イベント（委譲）
     document.addEventListener('click', (e) => {
         if (e.target.classList.contains('remove-process-btn')) {
             e.target.closest('.input-group').remove();
@@ -165,9 +210,9 @@
         }
     });
 
-    // 納品先追加（今回は簡易的に再計算を促す形にしています）
+    // 納品先追加
     document.getElementById('addDeliveryBtn').addEventListener('click', () => {
-        alert("現在の設定で一度「スケジュールを逆算する」を押してください。その後、新しい納品先が追加可能になります。");
+        alert("現在の設定で一度「スケジュールを逆算する」ボタンを押してください。最新の工程リストに基づいて新しい入力欄が作成されます。");
     });
 </script>
 
